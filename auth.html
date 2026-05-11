@@ -248,7 +248,13 @@
 
   const SUPABASE_URL  = 'https://hecehemjqgxgicxaqvcm.supabase.co';
   const SUPABASE_ANON = 'sb_publishable_-Vl64dYzEq1OxWIIJ-n-OQ_l8KVUDyh';
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: {
+      persistSession: true,
+      storageKey: 'sb-session',
+      storage: window.localStorage,
+    }
+  });
 
   // If already signed in, go straight to home
   const { data: { session } } = await supabase.auth.getSession();

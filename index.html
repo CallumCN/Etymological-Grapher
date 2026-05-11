@@ -769,21 +769,22 @@ async function initAuth() {
     }
   });
 
-  const { data: { session } } = await supabase.auth.getSession();
+  // Wait for Supabase to restore the session from localStorage before
+  // making any auth decisions. INITIAL_SESSION fires once on load.
+  const session = await new Promise(resolve => {
+    supabase.auth.onAuthStateChange((event, s) => {
+      if (event === 'INITIAL_SESSION') resolve(s);
+    });
+  });
+
   if (!session) {
     window.location.replace('/auth.html');
     return;
   }
 
-  // Explicitly set the session so the client attaches the token to all requests
-  await supabase.auth.setSession({
-    access_token: session.access_token,
-    refresh_token: session.refresh_token,
-  });
-
   currentUserId = session.user.id;
 
-  supabase.auth.onAuthStateChange((event, newSession) => {
+  supabase.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_OUT') window.location.replace('/auth.html');
   });
 
