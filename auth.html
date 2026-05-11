@@ -32,21 +32,15 @@
     flex-direction: column;
   }
 
-  nav {
-    padding: 1.5rem 3rem;
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    border-bottom: 1px solid var(--paper-dark);
-  }
+  nav { display: none; }
 
-  .nav-logo {
-    font-family: 'DM Mono', monospace;
+  .page-title {
+    text-align: center;
+    font-size: 2rem;
     font-weight: 300;
-    font-size: 0.85rem;
-    letter-spacing: 0.05em;
+    letter-spacing: -0.01em;
+    margin-bottom: 3rem;
     color: var(--ink);
-    text-decoration: none;
   }
 
   main {
@@ -208,9 +202,11 @@
 </nav>
 
 <main>
-  <div class="card">
+  <div style="width:100%;max-width:380px;">
+    <h1 class="page-title">Etymological Grapher</h1>
+    <div class="card">
     <p class="card-eyebrow" id="eyebrow">Welcome back</p>
-    <h1 class="card-title" id="title">Sign<br><em>in</em></h1>
+    <h1 class="card-title" id="title">Sign in</h1>
 
     <div class="form-group">
       <label class="form-label" for="email">Email</label>
@@ -239,6 +235,7 @@
       <span class="toggle-link" id="toggle-link" onclick="toggleMode()">Sign up</span>
     </div>
   </div>
+  </div>
 </main>
 
 <footer>
@@ -262,7 +259,7 @@
     mode = mode === 'signin' ? 'signup' : 'signin';
     const isSignup = mode === 'signup';
     document.getElementById('eyebrow').textContent    = isSignup ? 'Join' : 'Welcome back';
-    document.getElementById('title').innerHTML        = isSignup ? 'Create<br><em>account</em>' : 'Sign<br><em>in</em>';
+    document.getElementById('title').textContent = isSignup ? 'Create account' : 'Sign in';
     document.getElementById('submit-btn').textContent = isSignup ? 'Sign up' : 'Sign in';
     document.getElementById('toggle-label').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
     document.getElementById('toggle-link').textContent  = isSignup ? 'Sign in' : 'Sign up';

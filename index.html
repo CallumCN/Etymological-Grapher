@@ -816,9 +816,14 @@ async function loadFromSupabase() {
       .eq('user_id', currentUserId)
       .single();
 
-    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
-      console.error(error);
-      setSyncStatus('error', 'load failed');
+    if (error) {
+      if (error.code === 'PGRST116') {
+        // No row yet — new user, start empty
+        setSyncStatus('saved', 'Synced');
+        return;
+      }
+      console.error('Supabase load error:', error.code, error.message);
+      setSyncStatus('error', error.message || 'load failed');
       return;
     }
 
@@ -831,7 +836,7 @@ async function loadFromSupabase() {
     }
     setSyncStatus('saved', 'Synced');
   } catch(e) {
-    console.error(e);
+    console.error('Supabase load exception:', e);
     setSyncStatus('error', 'load failed');
   }
 }
