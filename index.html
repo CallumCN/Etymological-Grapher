@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Lexicon — callumcn</title>
+<title>Etymological Grapher</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
@@ -654,7 +654,7 @@ nav {
 </div>
 
 <nav>
-  <span class="nav-logo">Conlang Lexicon</span>
+  <span class="nav-logo">Etymological Grapher</span>
   <div class="nav-right">
     <div class="sync-status" id="sync-status">
       <span class="sync-dot"></span>
@@ -776,6 +776,7 @@ async function initAuth() {
 
   document.getElementById('auth-overlay').classList.add('hidden');
   init();
+  loadFromSupabase();
 }
 
 initAuth();
@@ -788,13 +789,10 @@ async function doSignOut() {
 // ─── INIT ─────────────────────────────────
 function init() {
   loadLocalDB();
-  maybeSeed();
   renderWordList();
   bindSearch();
   bindNavTabs();
   buildAncestorSlots();
-  // Load from Supabase (will overwrite local seed if user has saved data)
-  loadFromSupabase();
 }
 
 // ─── LOCAL STORAGE ────────────────────────
@@ -805,55 +803,6 @@ function loadLocalDB() {
 
 function saveLocalDB() {
   localStorage.setItem('conlang_db', JSON.stringify(DB));
-}
-
-function maybeSeed() {
-  if (DB.length > 0) return;
-  DB = [
-    { id: 'a1', word: 'ka',       transcription: '/ka/',            meaning: 'water, liquid',                        ancestors: [] },
-    { id: 'a2', word: 'los',      transcription: '/los/',           meaning: 'light, luminance',                     ancestors: [] },
-    { id: 'a3', word: 'ven',      transcription: '/ven/',           meaning: 'movement, flow',                       ancestors: [] },
-    { id: 'a4', word: 'kalos',    transcription: "/ˈka.los/",       meaning: 'reflection on water; glimmering surface', ancestors: ['a1','a2'] },
-    { id: 'a5', word: 'kalosven', transcription: "/ˌka.los.ˈven/",  meaning: 'current of a glittering river',        ancestors: ['a4','a3'] },
-    { id: 'a6', word: 'losven',   transcription: "/ˈlos.ven/",      meaning: 'beam of moving light',                 ancestors: ['a2','a3'] },
-  ];
-  saveLocalDB();
-}
-
-// ─── GOOGLE DRIVE ─────────────────────────
-function initGdrive() {
-  const token = sessionStorage.getItem('gdrive_token');
-  if (token) {
-    gdriveToken  = token;
-    gdriveFileId = sessionStorage.getItem('gdrive_file_id') || null;
-    syncFromDrive();
-  } else if (GDRIVE_CLIENT_ID !== 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
-    if (!localStorage.getItem('gdrive_banner_dismissed')) {
-      document.getElementById('gdrive-banner').classList.remove('hidden');
-    }
-  }
-}
-
-function gdriveSignIn() {
-  if (typeof google === 'undefined' || !google.accounts) {
-    setSyncStatus('error', 'API unavailable'); return;
-  }
-  google.accounts.oauth2.initTokenClient({
-    client_id: GDRIVE_CLIENT_ID,
-    scope: GDRIVE_SCOPE,
-    callback: resp => {
-      if (resp.error) { setSyncStatus('error', 'sign-in failed'); return; }
-      gdriveToken = resp.access_token;
-      sessionStorage.setItem('gdrive_token', gdriveToken);
-      document.getElementById('gdrive-banner').classList.add('hidden');
-      syncFromDrive();
-    },
-  }).requestAccessToken();
-}
-
-function dismissBanner() {
-  localStorage.setItem('gdrive_banner_dismissed', '1');
-  document.getElementById('gdrive-banner').classList.add('hidden');
 }
 
 // ─── SUPABASE SYNC ────────────────────────
