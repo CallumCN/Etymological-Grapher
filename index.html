@@ -761,13 +761,26 @@ let ancestorSlotValues = [null, null];
 // On load, check for a valid session; redirect to auth page if none.
 async function initAuth() {
   const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
-  supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON, {
+    auth: {
+      persistSession: true,
+      storageKey: 'sb-session',
+      storage: window.localStorage,
+    }
+  });
 
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) {
     window.location.replace('/auth.html');
     return;
   }
+
+  // Explicitly set the session so the client attaches the token to all requests
+  await supabase.auth.setSession({
+    access_token: session.access_token,
+    refresh_token: session.refresh_token,
+  });
+
   currentUserId = session.user.id;
 
   supabase.auth.onAuthStateChange((event, newSession) => {
