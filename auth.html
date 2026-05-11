@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in — callumcn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --ink: #1a1814;
+    --ink-mid: #4a4740;
+    --ink-light: #8a8680;
+    --paper: #f7f4ee;
+    --paper-mid: #ede9e0;
+    --paper-dark: #ddd9ce;
+    --paper-darker: #ccc8bc;
+    --amber: #b87c1a;
+    --amber-light: #e8c06a;
+    --amber-pale: #f5e9c8;
+    --red: #8b2e2e;
+  }
+
+  body {
+    font-family: 'Cormorant Garamond', serif;
+    background: var(--paper);
+    color: var(--ink);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  nav {
+    padding: 1.5rem 3rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    border-bottom: 1px solid var(--paper-dark);
+  }
+
+  .nav-logo {
+    font-family: 'DM Mono', monospace;
+    font-weight: 300;
+    font-size: 0.85rem;
+    letter-spacing: 0.05em;
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 4rem 2rem;
+  }
+
+  .card {
+    width: 100%;
+    max-width: 380px;
+    animation: fadeUp 0.5s ease both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .card-eyebrow {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: 1rem;
+  }
+
+  .card-title {
+    font-size: 2.5rem;
+    font-weight: 300;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+    margin-bottom: 2.5rem;
+  }
+
+  .card-title em { font-style: italic; color: var(--ink-mid); }
+
+  .form-group { margin-bottom: 1.25rem; }
+
+  .form-label {
+    display: block;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-light);
+    margin-bottom: 0.4rem;
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.6rem 0.9rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.82rem;
+    background: var(--paper-mid);
+    border: 1px solid var(--paper-dark);
+    color: var(--ink);
+    outline: none;
+    transition: border-color 0.15s;
+    letter-spacing: 0.03em;
+  }
+
+  .form-input:focus { border-color: var(--amber); }
+
+  .submit-btn {
+    width: 100%;
+    padding: 0.65rem;
+    margin-top: 0.5rem;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.72rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    background: var(--ink);
+    color: var(--paper);
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+
+  .submit-btn:hover { background: var(--amber); }
+  .submit-btn:disabled { opacity: 0.45; cursor: default; }
+
+  .error-msg {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--red);
+    margin-top: 0.75rem;
+    min-height: 1em;
+  }
+
+  .success-msg {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.65rem;
+    color: #2e5e3e;
+    margin-top: 0.75rem;
+    min-height: 1em;
+  }
+
+  .divider {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin: 2rem 0;
+  }
+
+  .divider-line { flex: 1; height: 1px; background: var(--paper-dark); }
+
+  .divider-label {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.6rem;
+    letter-spacing: 0.1em;
+    color: var(--ink-light);
+    text-transform: uppercase;
+  }
+
+  .toggle-link {
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-mid);
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    text-decoration-color: var(--paper-dark);
+    transition: color 0.15s;
+  }
+
+  .toggle-link:hover { color: var(--amber); }
+
+  .toggle-row {
+    text-align: center;
+    font-family: 'DM Mono', monospace;
+    font-size: 0.68rem;
+    color: var(--ink-light);
+  }
+
+  footer {
+    padding: 2rem 3rem;
+    border-top: 1px solid var(--paper-dark);
+    text-align: center;
+  }
+
+  .footer-mono {
+    font-family: 'DM Mono', monospace;
+    font-weight: 300;
+    font-size: 0.65rem;
+    letter-spacing: 0.1em;
+    color: var(--ink-light);
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <span class="nav-logo">callumcn</span>
+</nav>
+
+<main>
+  <div class="card">
+    <p class="card-eyebrow" id="eyebrow">Welcome back</p>
+    <h1 class="card-title" id="title">Sign<br><em>in</em></h1>
+
+    <div class="form-group">
+      <label class="form-label" for="email">Email</label>
+      <input type="email" id="email" class="form-input" placeholder="you@example.com" autocomplete="email">
+    </div>
+
+    <div class="form-group" id="password-group">
+      <label class="form-label" for="password">Password</label>
+      <input type="password" id="password" class="form-input" placeholder="••••••••" autocomplete="current-password">
+    </div>
+
+    <button class="submit-btn" id="submit-btn" onclick="handleSubmit()">Sign in</button>
+
+    <p class="error-msg" id="error-msg"></p>
+    <p class="success-msg" id="success-msg"></p>
+
+    <div class="divider">
+      <span class="divider-line"></span>
+      <span class="divider-label">or</span>
+      <span class="divider-line"></span>
+    </div>
+
+    <div class="toggle-row">
+      <span id="toggle-label">Don't have an account?</span>
+      <span> </span>
+      <span class="toggle-link" id="toggle-link" onclick="toggleMode()">Sign up</span>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <p class="footer-mono">callumcn</p>
+</footer>
+
+<script type="module">
+  import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
+
+  const SUPABASE_URL  = 'YOUR_SUPABASE_URL';
+  const SUPABASE_ANON = 'YOUR_SUPABASE_ANON_KEY';
+  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  // If already signed in, go straight to home
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session) window.location.replace('/');
+
+  let mode = 'signin'; // or 'signup'
+
+  window.toggleMode = function() {
+    mode = mode === 'signin' ? 'signup' : 'signin';
+    const isSignup = mode === 'signup';
+    document.getElementById('eyebrow').textContent    = isSignup ? 'Join' : 'Welcome back';
+    document.getElementById('title').innerHTML        = isSignup ? 'Create<br><em>account</em>' : 'Sign<br><em>in</em>';
+    document.getElementById('submit-btn').textContent = isSignup ? 'Sign up' : 'Sign in';
+    document.getElementById('toggle-label').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
+    document.getElementById('toggle-link').textContent  = isSignup ? 'Sign in' : 'Sign up';
+    document.getElementById('error-msg').textContent   = '';
+    document.getElementById('success-msg').textContent = '';
+    document.getElementById('password').autocomplete = isSignup ? 'new-password' : 'current-password';
+  };
+
+  window.handleSubmit = async function() {
+    const email    = document.getElementById('email').value.trim();
+    const password = document.getElementById('password').value;
+    const btn      = document.getElementById('submit-btn');
+    const errEl    = document.getElementById('error-msg');
+    const okEl     = document.getElementById('success-msg');
+
+    errEl.textContent = '';
+    okEl.textContent  = '';
+
+    if (!email || !password) { errEl.textContent = 'Email and password required.'; return; }
+
+    btn.disabled = true;
+    btn.textContent = mode === 'signin' ? 'Signing in…' : 'Creating account…';
+
+    if (mode === 'signin') {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        errEl.textContent = error.message;
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      } else {
+        window.location.replace('/');
+      }
+    } else {
+      const { error } = await supabase.auth.signUp({ email, password });
+      if (error) {
+        errEl.textContent = error.message;
+        btn.disabled = false;
+        btn.textContent = 'Sign up';
+      } else {
+        okEl.textContent = 'Check your email for a confirmation link, then sign in.';
+        btn.disabled = false;
+        btn.textContent = 'Sign up';
+        // Switch back to sign-in mode after signup
+        setTimeout(() => window.toggleMode(), 3000);
+      }
+    }
+  };
+
+  // Allow Enter key to submit
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Enter') window.handleSubmit();
+  });
+</script>
+</body>
+</html>

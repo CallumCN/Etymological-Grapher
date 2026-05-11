@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lexicon — callumcn</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,300;1,400&family=DM+Mono:wght@300;400&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --ink: #1a1814;
+  --ink-mid: #4a4740;
+  --ink-light: #8a8680;
+  --paper: #f7f4ee;
+  --paper-mid: #ede9e0;
+  --paper-dark: #ddd9ce;
+  --paper-darker: #ccc8bc;
+  --amber: #b87c1a;
+  --amber-light: #e8c06a;
+  --amber-pale: #f5e9c8;
+  --red: #8b2e2e;
+  --green: #2e5e3e;
+  --nav-h: 52px;
+}
+
+html, body { height: 100%; overflow: hidden; }
+
+body {
+  font-family: 'Cormorant Garamond', serif;
+  background: var(--paper);
+  color: var(--ink);
+  display: flex;
+  flex-direction: column;
+}
+
+nav {
+  height: var(--nav-h);
+  padding: 0 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--paper-dark);
+  flex-shrink: 0;
+  background: var(--paper);
+  z-index: 50;
+}
+
+.nav-logo {
+  font-family: 'DM Mono', monospace;
+  font-weight: 300;
+  font-size: 0.8rem;
+  letter-spacing: 0.05em;
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.nav-title {
+  font-size: 1rem;
+  font-weight: 300;
+  color: var(--ink-mid);
+  font-style: italic;
+}
+
+.nav-right {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.nav-tab {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  cursor: pointer;
+  padding: 0.3rem 0.75rem;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+}
+
+.nav-tab:hover { color: var(--ink-mid); }
+.nav-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+.sync-status {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--ink-light);
+  transition: color 0.3s;
+}
+
+.sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--paper-darker);
+  transition: background 0.3s;
+  flex-shrink: 0;
+}
+
+.sync-status.saving .sync-dot { background: var(--amber); }
+.sync-status.saved .sync-dot { background: var(--green); }
+.sync-status.error .sync-dot { background: var(--red); }
+.sync-status.saving { color: var(--amber); }
+.sync-status.saved { color: var(--green); }
+.sync-status.error { color: var(--red); }
+
+.app-body {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 300px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--paper-dark);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.sidebar-head {
+  padding: 1rem 1.25rem 0.75rem;
+  border-bottom: 1px solid var(--paper-dark);
+  flex-shrink: 0;
+}
+
+.search-wrap { position: relative; }
+
+.search-icon {
+  position: absolute;
+  left: 0.65rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--ink-light);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.75rem;
+  background: var(--paper-mid);
+  border: 1px solid var(--paper-dark);
+  color: var(--ink);
+  outline: none;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s;
+}
+
+.search-input:focus { border-color: var(--amber); }
+.search-input::placeholder { color: var(--ink-light); }
+
+.word-count {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-light);
+  margin-top: 0.5rem;
+}
+
+.word-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.25rem 0;
+}
+
+.word-list::-webkit-scrollbar { width: 4px; }
+.word-list::-webkit-scrollbar-track { background: transparent; }
+.word-list::-webkit-scrollbar-thumb { background: var(--paper-dark); }
+
+.word-item {
+  padding: 0.65rem 1.25rem;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: background 0.1s, border-color 0.15s;
+  user-select: none;
+}
+
+.word-item:hover { background: var(--paper-mid); }
+.word-item.active { background: var(--amber-pale); border-left-color: var(--amber); }
+
+.word-item-word { font-size: 1.05rem; font-weight: 400; margin-bottom: 0.1rem; }
+
+.word-item-gloss {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.62rem;
+  color: var(--ink-light);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.add-btn {
+  margin: 0.75rem 1.25rem;
+  padding: 0.5rem 1rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.add-btn:hover { background: var(--amber); }
+
+.main-panel {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.word-detail {
+  padding: 2.5rem 3rem;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.detail-word {
+  font-size: 3rem;
+  font-weight: 300;
+  letter-spacing: -0.02em;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.detail-transcription {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.85rem;
+  color: var(--ink-light);
+  letter-spacing: 0.05em;
+  margin-bottom: 1.5rem;
+}
+
+.detail-meaning {
+  font-size: 1.2rem;
+  font-weight: 300;
+  font-style: italic;
+  color: var(--ink-mid);
+  margin-bottom: 2rem;
+  line-height: 1.6;
+}
+
+.detail-section-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  margin-bottom: 0.75rem;
+}
+
+.ancestors-row {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 2rem;
+}
+
+.ancestor-chip {
+  padding: 0.3rem 0.75rem;
+  background: var(--paper-mid);
+  border: 1px solid var(--paper-dark);
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.15s;
+}
+
+.ancestor-chip:hover { background: var(--amber-pale); border-color: var(--amber-light); }
+
+.descendants-list { margin-bottom: 2rem; }
+
+.desc-item {
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--paper-mid);
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  cursor: pointer;
+}
+
+.desc-item:hover .desc-word { color: var(--amber); }
+.desc-word { font-size: 1rem; font-weight: 400; transition: color 0.15s; }
+.desc-gloss { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: var(--ink-light); }
+
+.detail-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 2rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--paper-dark);
+}
+
+.btn-sm {
+  padding: 0.4rem 1rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  border: 1px solid var(--paper-dark);
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-mid);
+  transition: all 0.15s;
+}
+
+.btn-sm:hover { background: var(--paper-mid); border-color: var(--paper-darker); }
+.btn-sm.danger:hover { background: #fdf0f0; border-color: #d4a0a0; color: var(--red); }
+.btn-sm.graph-btn:hover { background: var(--amber-pale); border-color: var(--amber-light); color: var(--amber); }
+
+.graph-view {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: none;
+  flex-direction: column;
+}
+
+.graph-view.active { display: flex; }
+
+.graph-controls {
+  padding: 0.6rem 1rem;
+  border-bottom: 1px solid var(--paper-dark);
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  flex-shrink: 0;
+  background: var(--paper);
+}
+
+.graph-label {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: var(--ink-light);
+  text-transform: uppercase;
+}
+
+.graph-scope {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--ink-mid);
+}
+
+.graph-btn-sm {
+  padding: 0.3rem 0.75rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1px solid var(--paper-dark);
+  background: transparent;
+  cursor: pointer;
+  color: var(--ink-mid);
+  transition: all 0.15s;
+  margin-left: auto;
+}
+
+.graph-btn-sm:hover { background: var(--paper-mid); }
+.graph-btn-sm + .graph-btn-sm { margin-left: 0; }
+
+#graph-svg { flex: 1; width: 100%; }
+
+.form-view {
+  padding: 2rem 3rem;
+  overflow-y: auto;
+  height: 100%;
+  display: none;
+}
+
+.form-view.active { display: block; }
+
+.form-title { font-size: 1.8rem; font-weight: 300; margin-bottom: 0.25rem; }
+
+.form-subtitle {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  color: var(--ink-light);
+  letter-spacing: 0.08em;
+  margin-bottom: 2.5rem;
+}
+
+.form-group { margin-bottom: 1.5rem; }
+
+.form-label {
+  display: block;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  margin-bottom: 0.4rem;
+}
+
+.form-input, .form-textarea {
+  width: 100%;
+  max-width: 480px;
+  padding: 0.55rem 0.85rem;
+  font-family: 'Cormorant Garamond', serif;
+  font-size: 1.05rem;
+  background: var(--paper-mid);
+  border: 1px solid var(--paper-dark);
+  color: var(--ink);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.form-input:focus, .form-textarea:focus { border-color: var(--amber); }
+.form-textarea { min-height: 80px; resize: vertical; }
+
+.form-hint {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--ink-light);
+  margin-top: 0.3rem;
+}
+
+.ancestor-slot { margin-bottom: 0.75rem; }
+
+.ancestor-search-wrap { position: relative; max-width: 480px; }
+
+.ancestor-input {
+  width: 100%;
+  padding: 0.5rem 0.85rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.75rem;
+  background: var(--paper-mid);
+  border: 1px solid var(--paper-dark);
+  color: var(--ink);
+  outline: none;
+  letter-spacing: 0.03em;
+  transition: border-color 0.15s;
+}
+
+.ancestor-input:focus { border-color: var(--amber); }
+
+.ancestor-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: var(--paper);
+  border: 1px solid var(--paper-dark);
+  border-top: none;
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 100;
+  display: none;
+}
+
+.ancestor-dropdown.open { display: block; }
+
+.dropdown-item {
+  padding: 0.5rem 0.85rem;
+  cursor: pointer;
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  transition: background 0.1s;
+}
+
+.dropdown-item:hover { background: var(--paper-mid); }
+.dropdown-item.highlighted { background: var(--amber-pale); }
+.dropdown-item-word { font-size: 1rem; }
+.dropdown-item-gloss { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--ink-light); }
+
+.ancestor-selected {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem 0.3rem 0.85rem;
+  background: var(--amber-pale);
+  border: 1px solid var(--amber-light);
+  font-size: 0.9rem;
+  max-width: 480px;
+}
+
+.ancestor-clear {
+  margin-left: auto;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--ink-light);
+  cursor: pointer;
+  padding: 0.1rem 0.25rem;
+  transition: color 0.1s;
+}
+
+.ancestor-clear:hover { color: var(--red); }
+
+.form-actions { display: flex; gap: 0.75rem; margin-top: 2rem; }
+
+.btn-primary {
+  padding: 0.55rem 1.5rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--paper);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn-primary:hover { background: var(--amber); }
+
+.btn-secondary {
+  padding: 0.55rem 1.25rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--ink-mid);
+  border: 1px solid var(--paper-dark);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.btn-secondary:hover { background: var(--paper-mid); }
+
+.empty-state {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-light);
+  gap: 0.75rem;
+}
+
+.empty-state-glyph { font-size: 2.5rem; opacity: 0.3; font-style: italic; }
+
+.empty-state-text {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.graph-tooltip {
+  position: absolute;
+  background: var(--paper);
+  border: 1px solid var(--paper-dark);
+  padding: 0.5rem 0.85rem;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s;
+  z-index: 200;
+  max-width: 240px;
+}
+
+.graph-tooltip.visible { opacity: 1; }
+.tt-word { font-size: 1rem; font-weight: 400; }
+.tt-trans { font-family: 'DM Mono', monospace; font-size: 0.6rem; color: var(--amber); margin: 0.1rem 0; }
+.tt-gloss { font-family: 'DM Mono', monospace; font-size: 0.65rem; color: var(--ink-light); }
+
+#auth-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--paper);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#auth-overlay.hidden { display: none; }
+
+.auth-inner { text-align: center; }
+.auth-title { font-size: 1.5rem; font-weight: 300; margin-bottom: 0.5rem; }
+
+.auth-sub {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--ink-light);
+  letter-spacing: 0.1em;
+  margin-bottom: 1.5rem;
+}
+
+.auth-row { display: flex; gap: 0; justify-content: center; }
+
+.auth-input {
+  padding: 0.55rem 1rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.8rem;
+  background: var(--paper-mid);
+  border: 1px solid var(--paper-dark);
+  border-right: none;
+  color: var(--ink);
+  outline: none;
+  width: 220px;
+}
+
+.auth-input:focus { border-color: var(--amber); }
+
+.auth-btn {
+  padding: 0.55rem 1.25rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.auth-btn:hover { background: var(--amber); border-color: var(--amber); }
+
+.auth-err {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.62rem;
+  color: var(--red);
+  margin-top: 0.5rem;
+  visibility: hidden;
+}
+
+.auth-err.show { visibility: visible; }
+
+/* auth overlay */
+</style>
+</head>
+<body>
+
+<div id="auth-overlay">
+  <div class="auth-inner">
+    <p class="auth-title">Conlang Lexicon</p>
+    <p class="auth-sub">Loading…</p>
+  </div>
+</div>
+
+<nav>
+  <span class="nav-logo">Conlang Lexicon</span>
+  <div class="nav-right">
+    <div class="sync-status" id="sync-status">
+      <span class="sync-dot"></span>
+      <span id="sync-label">loading</span>
+    </div>
+    <span class="nav-tab active" data-view="lexicon">Lexicon</span>
+    <span class="nav-tab" data-view="graph">Etymology</span>
+    <span class="nav-tab" style="color:var(--ink-light)" onclick="doSignOut()">Sign out</span>
+  </div>
+</nav>
+
+<div class="app-body">
+  <aside class="sidebar">
+    <div class="sidebar-head">
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input type="text" class="search-input" id="search" placeholder="search words...">
+      </div>
+      <p class="word-count" id="word-count">0 words</p>
+    </div>
+    <div class="word-list" id="word-list"></div>
+    <button class="add-btn" onclick="showAddForm()">+ Add word</button>
+  </aside>
+
+  <div class="main-panel">
+
+    <div id="lexicon-view" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
+      <div id="detail-pane" class="word-detail" style="display:none;"></div>
+      <div id="empty-state" class="empty-state">
+        <span class="empty-state-glyph">∅</span>
+        <span class="empty-state-text">Select a word or add one</span>
+      </div>
+    </div>
+
+    <div class="form-view" id="form-view">
+      <h2 class="form-title" id="form-title">Add word</h2>
+      <p class="form-subtitle" id="form-subtitle">New entry to the lexicon</p>
+
+      <div class="form-group">
+        <label class="form-label" for="f-word">Word</label>
+        <input type="text" class="form-input" id="f-word" placeholder="e.g. kalos">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="f-transcription">Transcription</label>
+        <input type="text" class="form-input" id="f-transcription" placeholder="e.g. /ˈka.los/">
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" for="f-meaning">Meaning</label>
+        <textarea class="form-textarea" id="f-meaning" placeholder="e.g. light, brightness; by extension, joy"></textarea>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">Ancestors <span style="font-weight:300;text-transform:none;font-family:'Cormorant Garamond',serif;font-size:0.9rem;letter-spacing:0;">(0–2 source words)</span></label>
+        <p class="form-hint" style="margin-bottom:0.75rem;">Ancestor 1 appears to the left of Ancestor 2 in the graph.</p>
+        <div id="ancestor-slots"></div>
+      </div>
+
+      <div class="form-actions">
+        <button class="btn-primary" onclick="saveWord()">Save word</button>
+        <button class="btn-secondary" onclick="cancelForm()">Cancel</button>
+      </div>
+    </div>
+
+    <div class="graph-view" id="graph-view">
+      <div class="graph-controls">
+        <span class="graph-label">Etymological graph</span>
+        <span class="graph-scope" id="graph-scope"></span>
+        <button class="graph-btn-sm" onclick="showFullGraph()">Full graph</button>
+        <button class="graph-btn-sm" onclick="reCenterGraph()">Re-center</button>
+        <button class="graph-btn-sm" onclick="renderGraph(graphFocusNode)">Reset layout</button>
+      </div>
+      <svg id="graph-svg"></svg>
+      <div class="graph-tooltip" id="graph-tooltip">
+        <div class="tt-word" id="tt-word"></div>
+        <div class="tt-trans" id="tt-trans"></div>
+        <div class="tt-gloss" id="tt-gloss"></div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+
+<script>
+// ─── CONFIG ───────────────────────────────
+const SUPABASE_URL  = 'YOUR_SUPABASE_URL';
+const SUPABASE_ANON = 'YOUR_SUPABASE_ANON_KEY';
+
+// ─── STATE ────────────────────────────────
+let DB            = [];
+let editingId     = null;
+let activeWordId  = null;
+let currentView   = 'lexicon';
+let graphFocusNode = null;
+let saveTimeout   = null;
+let supabase      = null;
+let currentUserId = null;
+let ancestorSlotValues = [null, null];
+
+// ─── SITE AUTH (Supabase) ─────────────────
+// No passphrase — Supabase session is the auth.
+// On load, check for a valid session; redirect to auth page if none.
+async function initAuth() {
+  const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm');
+  supabase = createClient(SUPABASE_URL, SUPABASE_ANON);
+
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) {
+    window.location.replace('/auth.html');
+    return;
+  }
+  currentUserId = session.user.id;
+
+  supabase.auth.onAuthStateChange((event, newSession) => {
+    if (event === 'SIGNED_OUT') window.location.replace('/auth.html');
+  });
+
+  document.getElementById('auth-overlay').classList.add('hidden');
+  init();
+}
+
+initAuth();
+
+async function doSignOut() {
+  if (supabase) await supabase.auth.signOut();
+  window.location.replace('/auth.html');
+}
+
+// ─── INIT ─────────────────────────────────
+function init() {
+  loadLocalDB();
+  maybeSeed();
+  renderWordList();
+  bindSearch();
+  bindNavTabs();
+  buildAncestorSlots();
+  // Load from Supabase (will overwrite local seed if user has saved data)
+  loadFromSupabase();
+}
+
+// ─── LOCAL STORAGE ────────────────────────
+function loadLocalDB() {
+  try { DB = JSON.parse(localStorage.getItem('conlang_db') || '[]'); }
+  catch { DB = []; }
+}
+
+function saveLocalDB() {
+  localStorage.setItem('conlang_db', JSON.stringify(DB));
+}
+
+function maybeSeed() {
+  if (DB.length > 0) return;
+  DB = [
+    { id: 'a1', word: 'ka',       transcription: '/ka/',            meaning: 'water, liquid',                        ancestors: [] },
+    { id: 'a2', word: 'los',      transcription: '/los/',           meaning: 'light, luminance',                     ancestors: [] },
+    { id: 'a3', word: 'ven',      transcription: '/ven/',           meaning: 'movement, flow',                       ancestors: [] },
+    { id: 'a4', word: 'kalos',    transcription: "/ˈka.los/",       meaning: 'reflection on water; glimmering surface', ancestors: ['a1','a2'] },
+    { id: 'a5', word: 'kalosven', transcription: "/ˌka.los.ˈven/",  meaning: 'current of a glittering river',        ancestors: ['a4','a3'] },
+    { id: 'a6', word: 'losven',   transcription: "/ˈlos.ven/",      meaning: 'beam of moving light',                 ancestors: ['a2','a3'] },
+  ];
+  saveLocalDB();
+}
+
+// ─── GOOGLE DRIVE ─────────────────────────
+function initGdrive() {
+  const token = sessionStorage.getItem('gdrive_token');
+  if (token) {
+    gdriveToken  = token;
+    gdriveFileId = sessionStorage.getItem('gdrive_file_id') || null;
+    syncFromDrive();
+  } else if (GDRIVE_CLIENT_ID !== 'YOUR_CLIENT_ID.apps.googleusercontent.com') {
+    if (!localStorage.getItem('gdrive_banner_dismissed')) {
+      document.getElementById('gdrive-banner').classList.remove('hidden');
+    }
+  }
+}
+
+function gdriveSignIn() {
+  if (typeof google === 'undefined' || !google.accounts) {
+    setSyncStatus('error', 'API unavailable'); return;
+  }
+  google.accounts.oauth2.initTokenClient({
+    client_id: GDRIVE_CLIENT_ID,
+    scope: GDRIVE_SCOPE,
+    callback: resp => {
+      if (resp.error) { setSyncStatus('error', 'sign-in failed'); return; }
+      gdriveToken = resp.access_token;
+      sessionStorage.setItem('gdrive_token', gdriveToken);
+      document.getElementById('gdrive-banner').classList.add('hidden');
+      syncFromDrive();
+    },
+  }).requestAccessToken();
+}
+
+function dismissBanner() {
+  localStorage.setItem('gdrive_banner_dismissed', '1');
+  document.getElementById('gdrive-banner').classList.add('hidden');
+}
+
+// ─── SUPABASE SYNC ────────────────────────
+async function loadFromSupabase() {
+  if (!supabase || !currentUserId) return;
+  setSyncStatus('saving', 'loading…');
+  try {
+    const { data, error } = await supabase
+      .from('lexicons')
+      .select('words')
+      .eq('user_id', currentUserId)
+      .single();
+
+    if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      console.error(error);
+      setSyncStatus('error', 'load failed');
+      return;
+    }
+
+    if (data) {
+      DB = data.words || [];
+      saveLocalDB();
+      renderWordList();
+      if (activeWordId) renderDetail(activeWordId);
+      if (currentView === 'graph') renderGraph(graphFocusNode);
+    }
+    setSyncStatus('saved', 'Synced');
+  } catch(e) {
+    console.error(e);
+    setSyncStatus('error', 'load failed');
+  }
+}
+
+async function saveToSupabase() {
+  if (!supabase || !currentUserId) return;
+  setSyncStatus('saving', 'saving…');
+  try {
+    const { error } = await supabase
+      .from('lexicons')
+      .upsert({ user_id: currentUserId, words: DB, updated_at: new Date().toISOString() },
+               { onConflict: 'user_id' });
+    if (error) {
+      console.error(error);
+      setSyncStatus('error', 'save failed');
+    } else {
+      setSyncStatus('saved', 'Synced');
+    }
+  } catch(e) {
+    console.error(e);
+    setSyncStatus('error', 'save failed');
+  }
+}
+
+function setSyncStatus(state, label) {
+  document.getElementById('sync-status').className = 'sync-status ' + state;
+  document.getElementById('sync-label').textContent = label;
+}
+
+function scheduleSync() {
+  saveLocalDB();
+  setSyncStatus('saving', 'unsaved');
+  clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(saveToSupabase, 1000);
+}
+
+// ─── WORD LIST ────────────────────────────
+function renderWordList(filter = '') {
+  const list  = document.getElementById('word-list');
+  const count = document.getElementById('word-count');
+  const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
+  const filtered = DB
+    .filter(w => !terms.length || terms.every(t =>
+      w.word.toLowerCase().includes(t) ||
+      w.meaning.toLowerCase().includes(t) ||
+      w.transcription.toLowerCase().includes(t)
+    ))
+    .sort((a, b) => a.word.localeCompare(b.word));
+  count.textContent = DB.length + ' word' + (DB.length !== 1 ? 's' : '');
+  list.innerHTML = '';
+  filtered.forEach(w => {
+    const el = document.createElement('div');
+    el.className = 'word-item' + (w.id === activeWordId ? ' active' : '');
+    el.innerHTML = `<div class="word-item-word">${esc(w.word)}</div><div class="word-item-gloss">${esc(w.meaning)}</div>`;
+    el.addEventListener('click', () => selectWord(w.id));
+    list.appendChild(el);
+  });
+}
+
+function bindSearch() {
+  document.getElementById('search').addEventListener('input', e => renderWordList(e.target.value));
+}
+
+// ─── WORD DETAIL ──────────────────────────
+function selectWord(id) {
+  activeWordId = id;
+  renderWordList(document.getElementById('search').value);
+  showView('lexicon');
+  renderDetail(id);
+}
+
+function renderDetail(id) {
+  const w = DB.find(x => x.id === id);
+  if (!w) return;
+  document.getElementById('detail-pane').style.display = 'block';
+  document.getElementById('empty-state').style.display = 'none';
+
+  const ancestors   = (w.ancestors || []).map(aid => DB.find(x => x.id === aid)).filter(Boolean);
+  const descendants = DB.filter(x => (x.ancestors || []).includes(id));
+
+  const ancestorHTML = ancestors.length ? `
+    <div class="detail-section-label">Ancestors</div>
+    <div class="ancestors-row">
+      ${ancestors.map(a => `<span class="ancestor-chip" onclick="selectWord('${a.id}')">${esc(a.word)}</span>`).join('')}
+    </div>` : '';
+
+  const descHTML = descendants.length ? `
+    <div class="detail-section-label">Descendants</div>
+    <div class="descendants-list">
+      ${descendants.map(d => `
+        <div class="desc-item" onclick="selectWord('${d.id}')">
+          <span class="desc-word">${esc(d.word)}</span>
+          <span class="desc-gloss">${esc(d.meaning)}</span>
+        </div>`).join('')}
+    </div>` : '';
+
+  document.getElementById('detail-pane').innerHTML = `
+    <div class="detail-word">${esc(w.word)}</div>
+    <div class="detail-transcription">${esc(w.transcription)}</div>
+    <div class="detail-meaning">${esc(w.meaning)}</div>
+    ${ancestorHTML}${descHTML}
+    <div class="detail-actions">
+      <button class="btn-sm" onclick="editWord('${w.id}')">Edit</button>
+      <button class="btn-sm graph-btn" onclick="focusGraphOn('${w.id}')">Show in graph</button>
+      <button class="btn-sm danger" onclick="deleteWord('${w.id}')">Delete</button>
+    </div>`;
+}
+
+function deleteWord(id) {
+  if (!confirm('Delete this word? Descendants will lose this ancestor link.')) return;
+  DB = DB
+    .map(w => ({ ...w, ancestors: (w.ancestors || []).filter(a => a !== id) }))
+    .filter(w => w.id !== id);
+  scheduleSync();
+  activeWordId = null;
+  document.getElementById('detail-pane').style.display = 'none';
+  document.getElementById('empty-state').style.display = 'flex';
+  renderWordList();
+}
+
+// ─── VIEWS ────────────────────────────────
+function showView(v) {
+  currentView = v;
+  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
+  document.getElementById('lexicon-view').style.display = v === 'lexicon' ? 'flex' : 'none';
+  document.getElementById('form-view').classList.toggle('active', v === 'form');
+  document.getElementById('graph-view').classList.toggle('active', v === 'graph');
+  if (v === 'graph') renderGraph(graphFocusNode);
+}
+
+function bindNavTabs() {
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.dataset.view === 'graph') {
+        graphFocusNode = null;
+        focusedVisible = null;
+      }
+      showView(t.dataset.view);
+    });
+  });
+}
+
+// ─── FORM ─────────────────────────────────
+function showAddForm() {
+  editingId = null;
+  activeWordId = null;
+  document.getElementById('form-title').textContent = 'Add word';
+  document.getElementById('form-subtitle').textContent = 'New entry to the lexicon';
+  ['f-word','f-transcription','f-meaning'].forEach(id => document.getElementById(id).value = '');
+  ancestorSlotValues = [null, null];
+  buildAncestorSlots();
+  showView('form');
+}
+
+function editWord(id) {
+  const w = DB.find(x => x.id === id);
+  if (!w) return;
+  editingId = id;
+  document.getElementById('form-title').textContent = 'Edit word';
+  document.getElementById('form-subtitle').textContent = esc(w.word);
+  document.getElementById('f-word').value = w.word;
+  document.getElementById('f-transcription').value = w.transcription;
+  document.getElementById('f-meaning').value = w.meaning;
+  ancestorSlotValues = [(w.ancestors||[])[0]||null, (w.ancestors||[])[1]||null];
+  buildAncestorSlots();
+  showView('form');
+}
+
+function cancelForm() {
+  if (activeWordId) { showView('lexicon'); renderDetail(activeWordId); }
+  else showView('lexicon');
+}
+
+function saveWord() {
+  const word         = document.getElementById('f-word').value.trim();
+  const transcription = document.getElementById('f-transcription').value.trim();
+  const meaning      = document.getElementById('f-meaning').value.trim();
+  if (!word) { alert('Word is required.'); return; }
+  const ancestors = ancestorSlotValues.filter(Boolean);
+
+  if (editingId) {
+    const idx = DB.findIndex(x => x.id === editingId);
+    if (idx !== -1) DB[idx] = { ...DB[idx], word, transcription, meaning, ancestors };
+    activeWordId = editingId;
+    editingId = null;
+  } else {
+    const nw = { id: genId(), word, transcription, meaning, ancestors };
+    DB.push(nw);
+    activeWordId = nw.id;
+  }
+  scheduleSync();
+  renderWordList();
+  showView('lexicon');
+  renderDetail(activeWordId);
+}
+
+// ─── ANCESTOR SLOTS ───────────────────────
+function buildAncestorSlots() {
+  document.getElementById('ancestor-slots').innerHTML = '';
+  [0, 1].forEach(i => renderAncestorSlot(i));
+}
+
+function renderAncestorSlot(i) {
+  const container = document.getElementById('ancestor-slots');
+  document.getElementById('ancestor-slot-' + i)?.remove();
+
+  const slot = document.createElement('div');
+  slot.className = 'ancestor-slot';
+  slot.id = 'ancestor-slot-' + i;
+
+  const label    = i === 0 ? 'Ancestor 1 — left in graph' : 'Ancestor 2 — right in graph';
+  const selected = ancestorSlotValues[i] ? DB.find(x => x.id === ancestorSlotValues[i]) : null;
+
+  if (selected) {
+    slot.innerHTML = `
+      <div style="font-family:'DM Mono',monospace;font-size:0.6rem;color:var(--ink-light);margin-bottom:0.3rem;letter-spacing:0.08em;">${label}</div>
+      <div class="ancestor-selected">
+        <span style="font-size:1rem">${esc(selected.word)}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--ink-light);margin-left:0.4rem">${esc(selected.meaning)}</span>
+        <span class="ancestor-clear" onclick="clearAncestor(${i})">✕</span>
+      </div>`;
+  } else {
+    slot.innerHTML = `
+      <div class="ancestor-search-wrap">
+        <input type="text" class="ancestor-input" id="ancestor-input-${i}" placeholder="${label}…" autocomplete="off">
+        <div class="ancestor-dropdown" id="ancestor-dd-${i}"></div>
+      </div>`;
+    setTimeout(() => {
+      const inp = document.getElementById('ancestor-input-' + i);
+      const dd  = document.getElementById('ancestor-dd-' + i);
+      if (!inp) return;
+
+      let highlightIdx = -1;
+
+      function getItems() { return dd.querySelectorAll('.dropdown-item'); }
+
+      function setHighlight(idx) {
+        const items = getItems();
+        items.forEach((el, j) => el.classList.toggle('highlighted', j === idx));
+        highlightIdx = idx;
+      }
+
+      function confirmSelection() {
+        const items = getItems();
+        if (highlightIdx >= 0 && items[highlightIdx]) {
+          selectAncestor(i, items[highlightIdx].dataset.id);
+          return true;
+        }
+        return false;
+      }
+
+      function focusNext() {
+        // Try the other slot's input first, then fall through to the form
+        const otherId = 'ancestor-input-' + (i === 0 ? 1 : 0);
+        const other = document.getElementById(otherId);
+        if (other) { other.focus(); return; }
+        // Other slot is already filled; move to meaning field
+        const meaning = document.getElementById('f-meaning');
+        if (meaning) meaning.focus();
+      }
+
+      inp.addEventListener('input', () => { highlightIdx = -1; filterAncestors(i, inp.value); });
+      inp.addEventListener('focus', () => { highlightIdx = -1; filterAncestors(i, inp.value); });
+      inp.addEventListener('blur',  () => setTimeout(() => { dd.classList.remove('open'); highlightIdx = -1; }, 150));
+
+      inp.addEventListener('keydown', e => {
+        const items = getItems();
+        const ddOpen = dd.classList.contains('open') && items.length > 0;
+
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          if (ddOpen) setHighlight(Math.min(highlightIdx + 1, items.length - 1));
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          if (ddOpen) setHighlight(Math.max(highlightIdx - 1, 0));
+        } else if (e.key === 'Enter') {
+          if (ddOpen && highlightIdx >= 0) {
+            e.preventDefault();
+            confirmSelection();
+          }
+        } else if (e.key === 'Tab') {
+          if (ddOpen && highlightIdx >= 0) {
+            // Select highlighted item, then move to next slot
+            e.preventDefault();
+            confirmSelection();
+            // After renderAncestorSlot re-renders, focus next
+            setTimeout(focusNext, 0);
+          } else if (ddOpen && items.length > 0) {
+            // Nothing highlighted yet — select first item on Tab
+            e.preventDefault();
+            setHighlight(0);
+            confirmSelection();
+            setTimeout(focusNext, 0);
+          } else {
+            // Dropdown empty or closed — just move to next slot naturally
+            // (let default Tab behaviour run, but redirect to other slot)
+            e.preventDefault();
+            focusNext();
+          }
+        } else if (e.key === 'Escape') {
+          dd.classList.remove('open');
+          highlightIdx = -1;
+        }
+      });
+    }, 0);
+  }
+
+  // Always insert at the correct index position so slot order never shifts
+  const slots = container.children;
+  if (slots.length <= i) {
+    container.appendChild(slot);
+  } else {
+    container.insertBefore(slot, slots[i]);
+  }
+}
+
+function filterAncestors(slotIdx, query) {
+  const dd      = document.getElementById('ancestor-dd-' + slotIdx);
+  if (!dd) return;
+  const q       = query.toLowerCase();
+  const otherId = ancestorSlotValues[slotIdx === 0 ? 1 : 0];
+  const candidates = DB.filter(w => {
+    if (editingId && w.id === editingId) return false;
+    if (w.id === otherId) return false;
+    if (!q) return true;
+    return w.word.toLowerCase().includes(q) || w.meaning.toLowerCase().includes(q);
+  }).slice(0, 8);
+  dd.innerHTML = candidates.map(w =>
+    `<div class="dropdown-item" data-id="${w.id}">
+      <span class="dropdown-item-word">${esc(w.word)}</span>
+      <span class="dropdown-item-gloss">${esc(w.meaning)}</span>
+    </div>`).join('');
+  dd.classList.toggle('open', candidates.length > 0 || q.length > 0);
+  dd.querySelectorAll('.dropdown-item').forEach(item =>
+    item.addEventListener('mousedown', () => selectAncestor(slotIdx, item.dataset.id))
+  );
+}
+
+function selectAncestor(slotIdx, id) { ancestorSlotValues[slotIdx] = id; renderAncestorSlot(slotIdx); }
+function clearAncestor(slotIdx)      { ancestorSlotValues[slotIdx] = null; renderAncestorSlot(slotIdx); }
+
+// ─── GRAPH ────────────────────────────────
+let focusedVisible = null;
+
+function focusGraphOn(id) {
+  graphFocusNode = id;
+  focusedVisible = new Set([id]);
+  showView('graph');
+}
+
+function showFullGraph() {
+  graphFocusNode = null;
+  focusedVisible = null;
+  renderGraph(null);
+}
+
+function buildLinks(nodes) {
+  const ids = new Set(nodes.map(n => n.id)), links = [];
+  nodes.forEach(n => (n.ancestors||[]).forEach(aid =>
+    ids.has(aid) && links.push({ source: aid, target: n.id })
+  ));
+  return links;
+}
+
+// ── Layout ──────────────────────────────────────────────────────────────────
+// Two-pass algorithm:
+//
+// Pass 1 (bottom-up): assign each node a "natural" x by averaging its
+//   children's natural x values. Leaf nodes get a temporary sequential slot.
+//   This propagates subtree centroids upward.
+//
+// Pass 2 (top-down): assign final x using parent constraints.
+//   A node with two parents is placed at their average.
+//   Ancestor[0] must end up left of ancestor[1] for any shared child.
+//   After each layer, a sweep enforces minimum spacing.
+//
+// Root ordering: roots are sorted by their bottom-up natural x so that
+//   a root whose subtree lies to the left of another root's subtree is
+//   placed to its left — fixing the alphabetical-sort bug.
+// ─────────────────────────────────────────────────────────────────────────────
+function computeLayout(nodes) {
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+
+  // parents[id] = [ancestor0, ancestor1] filtered to visible nodes
+  const parents = {};
+  nodes.forEach(n => { parents[n.id] = (n.ancestors||[]).filter(a => byId[a]); });
+
+  // children[id] = list of visible children
+  const children = {};
+  nodes.forEach(n => { children[n.id] = []; });
+  nodes.forEach(n => parents[n.id].forEach(pid => children[pid].push(n.id)));
+
+  // ── Depth via longest path ──
+  const depth = {}, depthMemo = new Set();
+  function getDepth(id) {
+    if (depth[id] !== undefined) return depth[id];
+    if (depthMemo.has(id)) { depth[id] = 0; return 0; }
+    depthMemo.add(id);
+    const ps = parents[id];
+    depth[id] = ps.length ? Math.max(...ps.map(getDepth)) + 1 : 0;
+    return depth[id];
+  }
+  nodes.forEach(n => getDepth(n.id));
+
+  const layers = {};
+  nodes.forEach(n => { const d = depth[n.id]; (layers[d] = layers[d]||[]).push(n.id); });
+  const sortedDepths = Object.keys(layers).map(Number).sort((a,b) => a-b);
+  const maxDepth = sortedDepths[sortedDepths.length - 1] || 0;
+
+  // ── Pass 1: bottom-up natural x ──
+  // Leaves (no visible children) get sequential integers left-to-right
+  // sorted alphabetically within each bottom layer.
+  const natural = {};
+  let leafSlot = 0;
+
+  // Process deepest layer first, then upward
+  for (let d = maxDepth; d >= 0; d--) {
+    const ids = layers[d] || [];
+    ids.sort((a,b) => byId[a].word.localeCompare(byId[b].word));
+    ids.forEach(id => {
+      const ch = children[id].filter(c => depth[c] > d); // true children
+      if (ch.length === 0) {
+        natural[id] = leafSlot++;
+      } else {
+        natural[id] = ch.reduce((s,c) => s + (natural[c]??0), 0) / ch.length;
+      }
+    });
+  }
+
+  // ── Sort roots by natural x (subtree centroid), alphabetical as tiebreak ──
+  // This places a root to the left of another if its subtree lies to the left,
+  // fixing cases like "nji" sorting alphabetically between two parents of a child.
+  const rootIds = nodes.filter(n => parents[n.id].length === 0).map(n => n.id);
+  rootIds.sort((a,b) => {
+    const diff = (natural[a]||0) - (natural[b]||0);
+    if (Math.abs(diff) > 0.01) return diff;
+    return (byId[a].word||'').localeCompare(byId[b].word||'');
+  });
+
+  // ── Pass 2: top-down final x ──
+  const xRank = {};
+
+  // Assign roots evenly spaced starting at 0
+  rootIds.forEach((id, i) => { xRank[id] = i; });
+
+  const MIN_GAP = 1; // minimum spacing between adjacent nodes in a layer
+
+  sortedDepths.forEach(d => {
+    // Assign non-root nodes in this layer
+    layers[d].filter(id => xRank[id] === undefined).forEach(id => {
+      const ps = parents[id];
+      if (!ps.length) { xRank[id] = natural[id] || 0; return; }
+      // ancestor[0] = left (ps[0]), ancestor[1] = right (ps[1])
+      // Child sits at the average of its parents' x values.
+      // The left/right constraint is satisfied because ancestor[0] will already
+      // have a smaller xRank than ancestor[1] (established in prior layers or
+      // by the root sort), so their average places the child correctly.
+      xRank[id] = ps.reduce((s,p) => s + (xRank[p]??natural[p]??0), 0) / ps.length;
+    });
+
+    // Sort layer and enforce minimum gap
+    const sorted = (layers[d]||[]).slice().sort((a,b) => (xRank[a]||0) - (xRank[b]||0));
+    for (let i = 1; i < sorted.length; i++) {
+      if ((xRank[sorted[i]]||0) < (xRank[sorted[i-1]]||0) + MIN_GAP) {
+        xRank[sorted[i]] = (xRank[sorted[i-1]]||0) + MIN_GAP;
+      }
+    }
+  });
+
+  return { depth, xRank };
+}
+
+// ── Render ───────────────────────────────────────────────────────────────────
+//
+// Interaction model:
+//  Scroll            → zoom toward cursor
+//  Click canvas      → deselect all
+//  Click node        → select node (deselect others)
+//  Shift+click node  → toggle node in/out of selection
+//  Drag canvas       → rubber-band selection box
+//  Drag node         → if unselected: select it alone then move; if selected: move all selected
+//  Delete            → remove selected nodes from focusedVisible (focused) or DB (full)
+//  Hover node        → show ghost neighbours (parents + children not in view)
+//  Space (on hover)  → pin ghost neighbours; Space again → hide
+//  Click ghost       → add to view
+
+// Per-render mutable state (reset on each renderGraph call)
+let graphState = null;
+
+function renderGraph(focusId) {
+  // Tear down old keydown listener and wheel handler
+  if (graphState && graphState.keyHandler) {
+    window.removeEventListener('keydown', graphState.keyHandler);
+  }
+  if (graphState && graphState.wheelCleanup) {
+    graphState.wheelCleanup();
+  }
+
+  const svgEl   = document.getElementById('graph-svg');
+  const tooltip = document.getElementById('graph-tooltip');
+  svgEl.innerHTML = '';
+
+  let nodes;
+  if (focusId && focusedVisible) {
+    nodes = DB.filter(n => focusedVisible.has(n.id));
+    document.getElementById('graph-scope').textContent =
+      `"${DB.find(x=>x.id===focusId)?.word}" — hover nodes to expand`;
+  } else {
+    nodes = [...DB];
+    document.getElementById('graph-scope').textContent = 'All words';
+  }
+
+  if (!nodes.length) {
+    const t = document.createElementNS('http://www.w3.org/2000/svg','text');
+    t.setAttribute('x','50%'); t.setAttribute('y','50%');
+    t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','12');
+    t.setAttribute('fill','#8a8680'); t.setAttribute('font-family','DM Mono,monospace');
+    t.textContent = 'No words yet';
+    svgEl.appendChild(t); return;
+  }
+
+  const W = svgEl.clientWidth  || 800;
+  const H = svgEl.clientHeight || 500;
+
+  const NODE_R   = 6;
+  const LABEL_DX = NODE_R + 6;
+  const ROW_H    = 80;
+  const CHAR_W   = 7.2;
+  const labelPx  = word => word.length * CHAR_W + 10;
+
+  const { depth, xRank } = computeLayout(nodes);
+
+  const layers = {};
+  nodes.forEach(n => { const d = depth[n.id]; (layers[d] = layers[d]||[]).push(n); });
+
+  let colW = 0;
+  Object.values(layers).forEach(layer => {
+    layer.sort((a,b) => (xRank[a.id]||0) - (xRank[b.id]||0));
+    for (let i = 0; i < layer.length - 1; i++) {
+      const rankGap = (xRank[layer[i+1].id]||0) - (xRank[layer[i].id]||0);
+      if (rankGap <= 0) continue;
+      const needed = (LABEL_DX + labelPx(layer[i].word) + 4 + NODE_R) / rankGap;
+      if (needed > colW) colW = needed;
+    }
+  });
+  if (colW === 0) colW = LABEL_DX + labelPx(nodes[0]?.word || '') + 10;
+
+  const padX = 30, padY = 40;
+  const pos = {};  // mutable; updated by drag
+  nodes.forEach(n => {
+    pos[n.id] = {
+      x: padX + (xRank[n.id]||0) * colW,
+      y: padY + depth[n.id] * ROW_H,
+    };
+  });
+
+  // ── Selection state ──
+  const selected = new Set();
+
+  // ── Ghost state ──
+  let ghost = null;
+
+  // ── SVG setup ──
+  const svg = d3.select(svgEl).attr('width', W).attr('height', H);
+
+  // Current transform state — managed manually so wheel zoom never conflicts with drag
+  let tx = 0, ty = 0, scale = 1;
+
+  function applyTransform() {
+    gMain.attr('transform', `translate(${tx},${ty}) scale(${scale})`);
+    currentZoomTransform = { x: tx, y: ty, k: scale }; // keep svgToWorld working
+  }
+
+  // Raw wheel handler — zoom toward cursor, no D3 zoom behaviour involved
+  function onWheel(e) {
+    e.preventDefault();
+    const rect = svgEl.getBoundingClientRect();
+    const mx = e.clientX - rect.left;   // cursor in SVG px
+    const my = e.clientY - rect.top;
+    const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+    const newScale = Math.min(12, Math.max(0.05, scale * factor));
+    // Zoom toward cursor: adjust tx/ty so the world point under cursor stays fixed
+    tx = mx - (mx - tx) * (newScale / scale);
+    ty = my - (my - ty) * (newScale / scale);
+    scale = newScale;
+    applyTransform();
+  }
+
+  svgEl.addEventListener('wheel', onWheel, { passive: false });
+
+  let currentZoomTransform = { x: 0, y: 0, k: 1 };
+
+  // Background rect — catches mousedown on empty space (no zoom handler attached)
+  const bgRect = svg.append('rect')
+    .attr('width', W).attr('height', H)
+    .attr('fill', 'transparent')
+    .style('cursor', 'default');
+
+  // Main group (zoomed/panned)
+  const gMain = svg.append('g');
+
+  // Ghost group (drawn behind nodes)
+  const gGhost = gMain.append('g').attr('class', 'ghost-layer');
+  const gEdges = gMain.append('g').attr('class', 'edge-layer');
+  const gNodes = gMain.append('g').attr('class', 'node-layer');
+  // Selection box (in SVG coords, not zoomed)
+  const selBoxEl = svg.append('rect')
+    .attr('fill', 'rgba(184,124,26,0.08)')
+    .attr('stroke', '#b87c1a').attr('stroke-width', 0.8)
+    .attr('stroke-dasharray', '4 3')
+    .style('display', 'none');
+
+  // ── Helpers ──
+  function edgePath(sid, tid) {
+    const s = pos[sid], t = pos[tid];
+    if (!s || !t) return '';
+    const cy = (s.y + t.y) / 2;
+    return `M${s.x},${s.y} C${s.x},${cy} ${t.x},${cy} ${t.x},${t.y}`;
+  }
+
+  function svgToWorld(svgX, svgY) {
+    return { x: (svgX - currentZoomTransform.x) / currentZoomTransform.k,
+             y: (svgY - currentZoomTransform.y) / currentZoomTransform.k };
+  }
+
+  function worldToSvg(wx, wy) {
+    return { x: wx * currentZoomTransform.k + currentZoomTransform.x,
+             y: wy * currentZoomTransform.k + currentZoomTransform.y };
+  }
+
+  // ── Draw edges ──
+  function buildLinks(nodeSet) {
+    const ids = new Set(nodeSet.map(n => n.id)), links = [];
+    nodeSet.forEach(n => (n.ancestors||[]).forEach(aid =>
+      ids.has(aid) && links.push([aid, n.id])
+    ));
+    return links;
+  }
+
+  function redrawEdges() {
+    gEdges.selectAll('*').remove();
+    buildLinks(nodes).forEach(([sid, tid]) => {
+      gEdges.append('path')
+        .attr('fill','none').attr('stroke','#b87c1a')
+        .attr('stroke-opacity', 0.45).attr('stroke-width', 1.3)
+        .attr('d', edgePath(sid, tid));
+    });
+  }
+
+  redrawEdges();
+
+  // ── Node appearance helpers ──
+  function nodeCircleFill(d) {
+    return selected.has(d.id) ? '#b87c1a' : '#ede9e0';
+  }
+  function nodeCircleStroke(d) {
+    return selected.has(d.id) ? '#8a5010' : '#8a8680';
+  }
+  function nodeLabelFill(d) {
+    return selected.has(d.id) ? '#b87c1a' : '#1a1814';
+  }
+
+  function updateNodeAppearance(pendingIds) {
+    // pendingIds: set of ids highlighted during rubber-band drag (not yet confirmed)
+    gNodes.selectAll('g.node-grp').each(function(d) {
+      const isPending = pendingIds && pendingIds.has(d.id);
+      const isSelected = selected.has(d.id);
+      d3.select(this).select('circle.node-circle')
+        .attr('fill', isSelected ? '#b87c1a' : isPending ? '#c8a050' : '#ede9e0')
+        .attr('stroke', isSelected ? '#8a5010' : isPending ? '#9a6010' : '#8a8680');
+      d3.select(this).select('text.node-label')
+        .attr('fill', isSelected ? '#b87c1a' : isPending ? '#9a6010' : '#1a1814');
+    });
+  }
+
+  // ── Draw nodes ──
+  const nodeSel = gNodes.selectAll('g.node-grp')
+    .data(nodes).enter()
+    .append('g').attr('class', 'node-grp')
+    .attr('data-id', d => d.id)
+    .attr('transform', d => `translate(${pos[d.id].x},${pos[d.id].y})`);
+
+  nodeSel.append('circle').attr('class', 'node-circle')
+    .attr('r', NODE_R)
+    .attr('fill', d => nodeCircleFill(d))
+    .attr('stroke', d => nodeCircleStroke(d))
+    .attr('stroke-width', 1.2);
+
+  nodeSel.append('text').attr('class', 'node-label')
+    .attr('x', LABEL_DX).attr('dy', '0.35em')
+    .attr('text-anchor', 'start')
+    .attr('font-family', 'Cormorant Garamond, serif')
+    .attr('font-size', 13)
+    .attr('fill', d => nodeLabelFill(d))
+    .attr('pointer-events', 'none')
+    .style('user-select', 'none')
+    .text(d => d.word);
+
+  // Attach drag + hover behavior to a node group selection (works for initial and added nodes)
+  function attachNodeBehavior(sel, datum) {
+    // For initial render sel is the full nodeSel; for added nodes it's a single-node selection
+    let dragMoved = false;
+
+    sel.call(d3.drag()
+      .on('start', (e, d) => {
+        e.sourceEvent.stopPropagation();
+        dragMoved = false;
+        if (!selected.has(d.id)) setSelected([d.id]);
+      })
+      .on('drag', (e, d) => {
+        dragMoved = true;
+        selected.forEach(id => {
+          if (pos[id]) { pos[id].x += e.dx; pos[id].y += e.dy; }
+          gNodes.select(`g.node-grp[data-id="${id}"]`)
+            .attr('transform', `translate(${pos[id].x},${pos[id].y})`);
+        });
+        redrawEdges();
+        if (ghost) clearGhost();
+      })
+      .on('end', (e, d) => {
+        if (!dragMoved) {
+          if (e.sourceEvent.shiftKey) {
+            if (selected.has(d.id)) selected.delete(d.id);
+            else selected.add(d.id);
+            updateNodeAppearance(null);
+          } else {
+            setSelected([d.id]);
+          }
+        }
+      })
+    );
+
+    sel
+      .on('mouseenter', (e, d) => {
+        const [mx, my] = d3.pointer(e, svgEl);
+        document.getElementById('tt-word').textContent  = d.word;
+        document.getElementById('tt-trans').textContent = d.transcription;
+        document.getElementById('tt-gloss').textContent = d.meaning;
+        Object.assign(tooltip.style, { left:(mx+14)+'px', top:(my-8)+'px' });
+        tooltip.classList.add('visible');
+        if (!ghost || !ghost.pinned) showGhost(d.id, false);
+        svgEl.dataset.hoveredNode = d.id;
+      })
+      .on('mousemove', e => {
+        const [mx, my] = d3.pointer(e, svgEl);
+        Object.assign(tooltip.style, { left:(mx+14)+'px', top:(my-8)+'px' });
+      })
+      .on('mouseleave', (e, d) => {
+        tooltip.classList.remove('visible');
+        delete svgEl.dataset.hoveredNode;
+        if (ghost && !ghost.pinned) clearGhost();
+      });
+  }
+
+  attachNodeBehavior(nodeSel);
+
+  // ── Ghost layer ──
+  function showGhost(nodeId, pinned) {
+    gGhost.selectAll('*').remove();
+
+    const visibleIds = new Set(nodes.map(n => n.id));
+    const w = DB.find(x => x.id === nodeId);
+    if (!w) return;
+
+    const ghostParentIds  = (w.ancestors||[]).filter(a => DB.find(x=>x.id===a) && !visibleIds.has(a));
+    const ghostChildIds   = DB.filter(x => (x.ancestors||[]).includes(nodeId) && !visibleIds.has(x.id)).map(x=>x.id);
+
+    ghost = { nodeId, pinned, parentIds: ghostParentIds, childIds: ghostChildIds };
+
+    if (!ghostParentIds.length && !ghostChildIds.length) return;
+
+    const ghostPos = {};
+
+    const hoverPos = pos[nodeId];
+
+    // Position ghost parents: just above the highest visible child of each ghost.
+    // A ghost parent's visible children are the nodes already on the graph that
+    // have this ghost as an ancestor — i.e. nodes whose ancestors include gid.
+    // The highest such child is the one with the smallest y.
+    // If the ghost has no visible children on the graph yet (other than the hovered
+    // node), use the hovered node as the reference.
+    ghostParentIds.forEach(gid => {
+      const visibleChildren = nodes.filter(n => (n.ancestors||[]).includes(gid));
+      const refY = visibleChildren.length
+        ? Math.min(...visibleChildren.map(n => pos[n.id]?.y ?? hoverPos.y))
+        : hoverPos.y;
+      ghostPos[gid] = { x: hoverPos.x, y: refY - ROW_H };
+    });
+
+    // Position ghost children: just below the lowest visible parent of each ghost.
+    // A ghost child's visible parents are its ancestors that are already on the graph.
+    ghostChildIds.forEach(gid => {
+      const gNode = DB.find(x => x.id === gid);
+      const visibleParents = gNode ? (gNode.ancestors||[]).filter(a => pos[a]) : [];
+      const refY = visibleParents.length
+        ? Math.max(...visibleParents.map(a => pos[a]?.y ?? hoverPos.y))
+        : hoverPos.y;
+      ghostPos[gid] = { x: hoverPos.x, y: refY + ROW_H };
+    });
+
+    // Spread multiple ghosts at the same y horizontally around hoverPos.x
+    [ghostParentIds, ghostChildIds].forEach(ids => {
+      // Group by y
+      const byY = {};
+      ids.forEach(id => {
+        const y = ghostPos[id].y;
+        (byY[y] = byY[y] || []).push(id);
+      });
+      Object.values(byY).forEach(group => {
+        if (group.length <= 1) return;
+        const GAP = 8;
+        const widths = group.map(id => {
+          const w = DB.find(x => x.id === id);
+          return NODE_R + LABEL_DX + labelPx(w ? w.word : '') + GAP;
+        });
+        const totalW = widths.reduce((s, w) => s + w, 0);
+        let cursor = hoverPos.x - totalW / 2;
+        group.forEach((id, i) => {
+          ghostPos[id].x = cursor + NODE_R;
+          cursor += widths[i];
+        });
+      });
+    });
+
+    const allGhostIds = [...ghostParentIds, ...ghostChildIds];
+
+    // Ghost edges
+    allGhostIds.forEach(gid => {
+      const gNode = DB.find(x => x.id === gid);
+      if (!gNode) return;
+      if (ghostParentIds.includes(gid)) {
+        const s = ghostPos[gid], t = pos[nodeId];
+        const cy = (s.y + t.y) / 2;
+        gGhost.append('path')
+          .attr('fill','none').attr('stroke','#b87c1a').attr('stroke-opacity',0.2).attr('stroke-width',1)
+          .attr('stroke-dasharray','4 3')
+          .attr('d', `M${s.x},${s.y} C${s.x},${cy} ${t.x},${cy} ${t.x},${t.y}`);
+      }
+      if (ghostChildIds.includes(gid)) {
+        const s = pos[nodeId], t = ghostPos[gid];
+        const cy = (s.y + t.y) / 2;
+        gGhost.append('path')
+          .attr('fill','none').attr('stroke','#b87c1a').attr('stroke-opacity',0.2).attr('stroke-width',1)
+          .attr('stroke-dasharray','4 3')
+          .attr('d', `M${s.x},${s.y} C${s.x},${cy} ${t.x},${cy} ${t.x},${t.y}`);
+      }
+    });
+
+    // Ghost nodes
+    allGhostIds.forEach(gid => {
+      const gNode = DB.find(x => x.id === gid);
+      if (!gNode) return;
+      const gp = ghostPos[gid];
+      const grp = gGhost.append('g').attr('class','ghost-node')
+        .attr('transform',`translate(${gp.x},${gp.y})`)
+        .attr('cursor','pointer')
+        .on('click', e => {
+          e.stopPropagation();
+          if (focusId && focusedVisible) {
+            focusedVisible.add(gid);
+          }
+          // Adopt the ghost's position into the live pos map
+          pos[gid] = { ...ghostPos[gid] };
+          // Add to nodes array
+          nodes.push(gNode);
+          // Draw it as a real node
+          const newGrp = gNodes.append('g').attr('class','node-grp')
+            .datum(gNode)
+            .attr('data-id', gid)
+            .attr('cursor','pointer')
+            .attr('transform', `translate(${pos[gid].x},${pos[gid].y})`);
+          newGrp.append('circle').attr('class','node-circle')
+            .attr('r', NODE_R).attr('fill','#ede9e0').attr('stroke','#8a8680').attr('stroke-width',1.2);
+          newGrp.append('text').attr('class','node-label')
+            .attr('x', LABEL_DX).attr('dy','0.35em').attr('text-anchor','start')
+            .attr('font-family','Cormorant Garamond, serif').attr('font-size',13)
+            .attr('fill','#1a1814').attr('pointer-events','none')
+            .style('user-select','none').text(gNode.word);
+          // Attach drag and hover to the new node
+          attachNodeBehavior(newGrp, gNode);
+          // Cascade in the relevant direction.
+          // For a new PARENT: run cascadeUp from each of its visible children
+          //   (already correctly positioned) so the new node gets pushed up if
+          //   it's at or below any of them, then cascades further up.
+          // For a new CHILD: run cascadeDown from each of its visible parents
+          //   so the new node gets pushed down if needed, then cascades further.
+          const isParent = ghost && ghost.parentIds.includes(gid);
+          if (isParent) {
+            // visible children of the new node = nodes already in graph that list gid as ancestor
+            const visChildren = nodes.filter(n => n.id !== gid && (n.ancestors||[]).includes(gid));
+            if (visChildren.length) {
+              visChildren.forEach(n => snapDepths(n.id, 'up'));
+            } else {
+              snapDepths(gid, 'up');
+            }
+          } else {
+            // visible parents of the new node = its ancestors already in graph
+            const visParents = (gNode.ancestors||[]).filter(a => pos[a]);
+            if (visParents.length) {
+              visParents.forEach(pid => snapDepths(pid, 'down'));
+            } else {
+              snapDepths(gid, 'down');
+            }
+          }
+          // Remove just this ghost node
+          grp.remove();
+          // Remove ghost edges for this id (dashed paths touching this ghost)
+          gGhost.selectAll('path').filter(function() {
+            // Remove any dashed edge that was drawn for this ghost
+            // We identify them by checking if their 'd' attribute passes through ghostPos[gid]
+            return false; // can't easily identify; instead redraw ghost without this id
+          }).remove();
+          // Re-render ghost without the added id
+          if (ghost) {
+            ghost.parentIds = ghost.parentIds.filter(x => x !== gid);
+            ghost.childIds  = ghost.childIds.filter(x => x !== gid);
+            // Redraw ghost edges only (nodes already partially removed)
+            gGhost.selectAll('path').remove();
+            [...ghost.parentIds, ...ghost.childIds].forEach(rid => {
+              const rNode = DB.find(x => x.id === rid);
+              if (!rNode) return;
+              const rp = ghostPos[rid];
+              if (!rp) return;
+              const isParent = ghost.parentIds.includes(rid);
+              const s = isParent ? rp : pos[ghost.nodeId];
+              const t = isParent ? pos[ghost.nodeId] : rp;
+              const cy = (s.y + t.y) / 2;
+              gGhost.insert('path', ':first-child')
+                .attr('fill','none').attr('stroke','#b87c1a').attr('stroke-opacity',0.2).attr('stroke-width',1)
+                .attr('stroke-dasharray','4 3')
+                .attr('d', `M${s.x},${s.y} C${s.x},${cy} ${t.x},${cy} ${t.x},${t.y}`);
+            });
+            if (!ghost.parentIds.length && !ghost.childIds.length) clearGhost();
+          }
+        });
+
+      grp.append('circle')
+        .attr('r', NODE_R)
+        .attr('fill','#f7f4ee').attr('stroke','#b87c1a')
+        .attr('stroke-width',1).attr('stroke-opacity',0.5)
+        .attr('fill-opacity',0.5);
+
+      grp.append('text')
+        .attr('x', LABEL_DX).attr('dy','0.35em')
+        .attr('text-anchor','start')
+        .attr('font-family','Cormorant Garamond, serif').attr('font-size',12)
+        .attr('fill','#8a8680').attr('pointer-events','none')
+        .style('user-select','none')
+        .text(gNode.word);
+    });
+  }
+
+  function clearGhost() {
+    gGhost.selectAll('*').remove();
+    ghost = null;
+  }
+
+  // ── Cascade to fix depth violations ──────────────────────────────────────
+  // direction: 'up' when a parent was added (only cascade upward through ancestors),
+  //            'down' when a child was added (only cascade downward through descendants).
+  // This prevents adding a parent from disturbing sibling subtrees below,
+  // and adding a child from disturbing sibling subtrees above.
+  function snapDepths(startId, direction) {
+    const byId = {};
+    nodes.forEach(n => { byId[n.id] = n; });
+
+    const visParents  = id => ((byId[id]?.ancestors)||[]).filter(a => byId[a]);
+    const visChildren = id => nodes.filter(n => (n.ancestors||[]).includes(id)).map(n => n.id);
+
+    const visitedUp = new Set();
+    function cascadeUp(id) {
+      if (visitedUp.has(id)) return;
+      visitedUp.add(id);
+      const myY = pos[id]?.y;
+      if (myY === undefined) return;
+      visParents(id).forEach(pid => {
+        if (!pos[pid]) return;
+        if (pos[pid].y >= myY) {
+          pos[pid].y = myY - ROW_H;
+          gNodes.select(`g.node-grp[data-id="${pid}"]`)
+            .attr('transform', `translate(${pos[pid].x},${pos[pid].y})`);
+        }
+        cascadeUp(pid);
+      });
+    }
+
+    const visitedDown = new Set();
+    function cascadeDown(id) {
+      if (visitedDown.has(id)) return;
+      visitedDown.add(id);
+      const myY = pos[id]?.y;
+      if (myY === undefined) return;
+      visChildren(id).forEach(cid => {
+        if (!pos[cid]) return;
+        if (pos[cid].y <= myY) {
+          pos[cid].y = myY + ROW_H;
+          gNodes.select(`g.node-grp[data-id="${cid}"]`)
+            .attr('transform', `translate(${pos[cid].x},${pos[cid].y})`);
+        }
+        cascadeDown(cid);
+      });
+    }
+
+    if (direction === 'up')   cascadeUp(startId);
+    if (direction === 'down') cascadeDown(startId);
+    redrawEdges();
+  }
+
+  // ── Selection ──
+  function setSelected(ids) {
+    selected.clear();
+    ids.forEach(id => selected.add(id));
+    updateNodeAppearance(null);
+  }
+
+  // ── Canvas: rubber-band selection + deselect ──
+  let selBox = null;
+
+  function nodesInRect(svgX0, svgY0, svgX1, svgY1) {
+    // Convert selection box corners to world coords
+    const wa = svgToWorld(Math.min(svgX0, svgX1), Math.min(svgY0, svgY1));
+    const wb = svgToWorld(Math.max(svgX0, svgX1), Math.max(svgY0, svgY1));
+    return nodes.filter(n => {
+      const p = pos[n.id];
+      // Hit if circle overlaps the box: node centre is within box expanded by NODE_R
+      return p.x >= wa.x - NODE_R && p.x <= wb.x + NODE_R
+          && p.y >= wa.y - NODE_R && p.y <= wb.y + NODE_R;
+    }).map(n => n.id);
+  }
+
+  bgRect.on('mousedown', function(e) {
+    if (e.button !== 0) return;
+    const [sx, sy] = d3.pointer(e, svgEl);
+    selBox = { x0: sx, y0: sy };
+    selBoxEl.style('display', null)
+      .attr('x', sx).attr('y', sy)
+      .attr('width', 0).attr('height', 0);
+  });
+
+  svg.on('mousemove.selbox', function(e) {
+    if (!selBox) return;
+    const [sx, sy] = d3.pointer(e, svgEl);
+    const rx = Math.min(selBox.x0, sx), ry = Math.min(selBox.y0, sy);
+    const rw = Math.abs(sx - selBox.x0), rh = Math.abs(sy - selBox.y0);
+    selBoxEl.attr('x', rx).attr('y', ry).attr('width', rw).attr('height', rh);
+    // Show pending highlight
+    const pending = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+    updateNodeAppearance(pending);
+  });
+
+  svg.on('mouseup.selbox', function(e) {
+    if (!selBox) return;
+    const [sx, sy] = d3.pointer(e, svgEl);
+    const rw = Math.abs(sx - selBox.x0), rh = Math.abs(sy - selBox.y0);
+    selBoxEl.style('display', 'none');
+
+    if (rw < 4 && rh < 4) {
+      setSelected([]);
+    } else {
+      setSelected(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+    }
+    selBox = null;
+  });
+
+  // ── Keyboard ──
+  const keyHandler = e => {
+    if (currentView !== 'graph') return;
+
+    // Delete: remove selected from view
+    if (e.key === 'Delete' || e.key === 'Backspace') {
+      if (selected.size === 0) return;
+      const toDelete = [...selected];
+
+      if (focusId && focusedVisible) {
+        // Focused mode: just remove from view, no DB change
+        toDelete.forEach(id => {
+          focusedVisible.delete(id);
+          delete pos[id];
+          const idx = nodes.findIndex(n => n.id === id);
+          if (idx !== -1) nodes.splice(idx, 1);
+          gNodes.select(`g.node-grp[data-id="${id}"]`).remove();
+        });
+        selected.clear();
+        redrawEdges();
+        clearGhost();
+      } else {
+        // Full graph: remove from DB
+        if (!confirm(`Delete ${selected.size} word(s)?`)) return;
+        toDelete.forEach(id => {
+          delete pos[id];
+          const idx = nodes.findIndex(n => n.id === id);
+          if (idx !== -1) nodes.splice(idx, 1);
+          gNodes.select(`g.node-grp[data-id="${id}"]`).remove();
+        });
+        DB = DB
+          .map(w => ({ ...w, ancestors: (w.ancestors||[]).filter(a => !toDelete.includes(a)) }))
+          .filter(w => !toDelete.includes(w.id));
+        scheduleSync();
+        selected.clear();
+        redrawEdges();
+        clearGhost();
+        renderWordList();
+      }
+      return;
+    }
+
+    // Space: pin/unpin ghost neighbours for the currently hovered node
+    if (e.code === 'Space') {
+      e.preventDefault();
+      const hoveredId = svgEl.dataset.hoveredNode;
+      if (ghost && ghost.pinned) {
+        // Unpin
+        clearGhost();
+      } else if (hoveredId) {
+        showGhost(hoveredId, true);
+      }
+    }
+  };
+
+  window.addEventListener('keydown', keyHandler);
+
+  // ── Auto-fit ──
+  function fitToView() {
+    const xs = nodes.map(n => pos[n.id].x);
+    const ys = nodes.map(n => pos[n.id].y);
+    const x0 = Math.min(...xs) - padX;
+    const x1 = Math.max(...xs) + padX + Math.max(...nodes.map(n => labelPx(n.word))) + NODE_R;
+    const y0 = Math.min(...ys) - padY;
+    const y1 = Math.max(...ys) + padY;
+    const contentW = x1 - x0, contentH = y1 - y0;
+    scale = Math.min(W / contentW, H / contentH, 2.5);
+    tx = (W - scale * (x0 + x1)) / 2;
+    ty = (H - scale * (y0 + y1)) / 2;
+    applyTransform();
+  }
+
+  fitToView();
+
+  // Store cleanup so next renderGraph call removes the wheel listener and keyHandler
+  graphState = {
+    keyHandler,
+    wheelCleanup: () => svgEl.removeEventListener('wheel', onWheel),
+    fitToView,
+  };
+}
+
+function reCenterGraph() {
+  if (graphState && graphState.fitToView) graphState.fitToView();
+}
+
+window.addEventListener('resize', () => { if (currentView === 'graph') renderGraph(graphFocusNode); });
+
+// ─── UTILS ────────────────────────────────
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>
+
