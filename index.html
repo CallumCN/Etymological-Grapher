@@ -861,7 +861,7 @@ async function loadFromSupabase() {
 
     if (error) {
       if (error.code === 'PGRST116') {
-        setSyncStatus('saved', 'Synced');
+        setSyncStatus('saved', 'Saved');
         return;
       }
       console.error('Supabase load error:', error.code, error.message, error.hint, error.details);
@@ -876,7 +876,7 @@ async function loadFromSupabase() {
       if (activeWordId) renderDetail(activeWordId);
       if (currentView === 'graph') renderGraph(graphFocusNode);
     }
-    setSyncStatus('saved', 'Synced');
+    setSyncStatus('saved', 'Saved');
   } catch(e) {
     console.error('Supabase load exception:', e);
     setSyncStatus('error', 'load failed');
@@ -895,7 +895,7 @@ async function saveToSupabase() {
       console.error(error);
       setSyncStatus('error', 'save failed');
     } else {
-      setSyncStatus('saved', 'Synced');
+      setSyncStatus('saved', 'Saved');
     }
   } catch(e) {
     console.error(e);
@@ -1052,22 +1052,75 @@ function cancelForm() {
   else showView('lexicon');
 }
 
+// ─── CYCLE DETECTION ──────────────────────
+// Returns an array of cycle descriptions, each being an array of word names
+// forming a cycle in the given word list. O(N+E).
+function findCycles(wordList) {
+  const byId = {};
+  wordList.forEach(w => { byId[w.id] = w; });
+
+  const WHITE = 0, GRAY = 1, BLACK = 2;
+  const color = {};
+  wordList.forEach(w => { color[w.id] = WHITE; });
+
+  const cycles = [];
+
+  function dfs(id, path) {
+    color[id] = GRAY;
+    path.push(id);
+    const w = byId[id];
+    for (const aid of (w?.ancestors || [])) {
+      if (!byId[aid]) continue; // ancestor not in this set — skip
+      if (color[aid] === GRAY) {
+        // Found a cycle — extract the loop portion of path
+        const cycleStart = path.indexOf(aid);
+        const cycleIds   = path.slice(cycleStart);
+        cycles.push(cycleIds.map(cid => byId[cid]?.word ?? cid));
+      } else if (color[aid] === WHITE) {
+        dfs(aid, path);
+      }
+    }
+    path.pop();
+    color[id] = BLACK;
+  }
+
+  wordList.forEach(w => { if (color[w.id] === WHITE) dfs(w.id, []); });
+  return cycles;
+}
+
 function saveWord() {
-  const word         = document.getElementById('f-word').value.trim();
+  const word          = document.getElementById('f-word').value.trim();
   const transcription = document.getElementById('f-transcription').value.trim();
-  const meaning      = document.getElementById('f-meaning').value.trim();
+  const meaning       = document.getElementById('f-meaning').value.trim();
   if (!word) { alert('Word is required.'); return; }
   const ancestors = ancestorSlotValues.filter(Boolean);
 
+  // Build a temporary DB with the new/edited word to check for cycles
+  let tempDB;
+  if (editingId) {
+    tempDB = DB.map(w => w.id === editingId
+      ? { ...w, word, transcription, meaning, ancestors }
+      : w);
+  } else {
+    const nw = { id: genId(), word, transcription, meaning, ancestors };
+    tempDB = [...DB, nw];
+  }
+
+  const cycles = findCycles(tempDB);
+  if (cycles.length) {
+    const desc = cycles.map(c => c.join(' → ')).join('\n');
+    alert(`Cannot save "${word}": it would create a cycle.\n\n${desc}`);
+    return;
+  }
+
   if (editingId) {
     const idx = DB.findIndex(x => x.id === editingId);
-    if (idx !== -1) DB[idx] = { ...DB[idx], word, transcription, meaning, ancestors };
+    if (idx !== -1) DB[idx] = tempDB[idx];
     activeWordId = editingId;
     editingId = null;
   } else {
-    const nw = { id: genId(), word, transcription, meaning, ancestors };
-    DB.push(nw);
-    activeWordId = nw.id;
+    DB.push(tempDB[tempDB.length - 1]);
+    activeWordId = tempDB[tempDB.length - 1].id;
   }
   scheduleSync();
   renderWordList();
@@ -1075,7 +1128,54 @@ function saveWord() {
   renderDetail(activeWordId);
 }
 
-// ─── ANCESTOR SLOTS ───────────────────────
+function importLexicon(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) { alert('Invalid file: expected a JSON array.'); return; }
+      if (!imported.every(w => typeof w.word === 'string')) {
+        alert('Invalid file: each entry must have a "word" field.'); return;
+      }
+
+      const action = DB.length === 0 ? 'replace' :
+        confirm(`Your lexicon has ${DB.length} word(s). Merge imported words in (OK) or replace everything (Cancel)?`)
+          ? 'merge' : 'replace';
+
+      let candidate;
+      if (action === 'replace') {
+        candidate = imported;
+      } else {
+        const existingIds = new Set(DB.map(w => w.id));
+        candidate = [...DB, ...imported.filter(w => !existingIds.has(w.id))];
+      }
+
+      // Check for cycles in the candidate dataset before committing
+      const cycles = findCycles(candidate);
+      if (cycles.length) {
+        const desc = cycles.map(c => c.join(' → ')).join('\n');
+        alert(`Import rejected: the data contains ${cycles.length} cycle(s).\n\n${desc}`);
+        input.value = '';
+        return;
+      }
+
+      DB = candidate;
+      scheduleSync();
+      renderWordList();
+      if (activeWordId && !DB.find(w => w.id === activeWordId)) {
+        activeWordId = null;
+        document.getElementById('detail-pane').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'flex';
+      }
+    } catch {
+      alert('Could not parse file. Make sure it is a valid JSON export from this app.');
+    }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
 function buildAncestorSlots() {
   document.getElementById('ancestor-slots').innerHTML = '';
   [0, 1].forEach(i => renderAncestorSlot(i));
@@ -2157,45 +2257,6 @@ function exportLexicon() {
   URL.revokeObjectURL(url);
 }
 
-function importLexicon(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const imported = JSON.parse(e.target.result);
-      if (!Array.isArray(imported)) { alert('Invalid file: expected a JSON array.'); return; }
-      // Validate each entry has at least a word field
-      const valid = imported.every(w => typeof w.word === 'string');
-      if (!valid) { alert('Invalid file: each entry must have a "word" field.'); return; }
-
-      const action = DB.length === 0 ? 'replace' :
-        confirm(`Your lexicon has ${DB.length} word(s). Merge imported words in (OK) or replace everything (Cancel)?`)
-          ? 'merge' : 'replace';
-
-      if (action === 'replace') {
-        DB = imported;
-      } else {
-        // Merge: add imported words whose id doesn't already exist
-        const existingIds = new Set(DB.map(w => w.id));
-        const newWords = imported.filter(w => !existingIds.has(w.id));
-        DB = [...DB, ...newWords];
-      }
-      scheduleSync();
-      renderWordList();
-      if (activeWordId && !DB.find(w => w.id === activeWordId)) {
-        activeWordId = null;
-        document.getElementById('detail-pane').style.display = 'none';
-        document.getElementById('empty-state').style.display = 'flex';
-      }
-    } catch {
-      alert('Could not parse file. Make sure it is a valid JSON export from this app.');
-    }
-    // Reset input so the same file can be re-imported if needed
-    input.value = '';
-  };
-  reader.readAsText(file);
-}
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function esc(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
