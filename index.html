@@ -105,6 +105,10 @@ nav {
   transition: color 0.15s, border-color 0.15s;
   user-select: none;
   white-space: nowrap;
+  /* Fixed width so text change between Etymology/Etymologies doesn't shift layout */
+  display: inline-block;
+  width: 8.5rem;
+  text-align: left;
 }
 
 .etym-menu-btn:hover,
@@ -123,7 +127,6 @@ nav {
   background: var(--amber-pale);
   transition: background 0.15s;
   white-space: nowrap;
-  /* Overlap to the left — positioned absolute so it doesn't shift other tabs */
   position: absolute;
   right: calc(100% + 0.5rem);
   top: 50%;
@@ -135,7 +138,7 @@ nav {
 
 .etym-dropdown {
   position: absolute;
-  top: 100%; /* flush with bottom of button — bridge gap with padding */
+  top: 100%;
   right: 0;
   min-width: 200px;
   background: var(--paper);
@@ -144,7 +147,7 @@ nav {
   display: none;
   flex-direction: column;
   box-shadow: 0 4px 16px rgba(26,24,20,0.08);
-  padding-top: 6px; /* invisible bridge over the gap so mouse can reach dropdown */
+  padding-top: 6px;
   margin-top: -6px;
 }
 
@@ -159,13 +162,20 @@ nav {
   letter-spacing: 0.06em;
 }
 
+/* Each dropdown row is a wrapper that positions the delete button outside */
+.etym-dropdown-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
 .etym-dropdown-item {
+  flex: 1;
   display: flex;
   align-items: center;
   padding: 0.5rem 0.75rem;
   cursor: pointer;
   transition: background 0.1s;
-  gap: 0.5rem;
 }
 
 .etym-dropdown-item:hover { background: var(--paper-mid); }
@@ -174,7 +184,6 @@ nav {
   font-family: 'DM Mono', monospace;
   font-size: 0.7rem;
   color: var(--ink-mid);
-  flex: 1;
   letter-spacing: 0.04em;
   white-space: nowrap;
   overflow: hidden;
@@ -185,17 +194,22 @@ nav {
   font-family: 'DM Mono', monospace;
   font-size: 0.6rem;
   color: var(--ink-light);
-  padding: 0.1rem 0.4rem;
+  padding: 0.2rem 0.45rem;
   border: 1px solid var(--paper-dark);
-  background: transparent;
+  background: var(--paper);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s, color 0.15s;
   white-space: nowrap;
   flex-shrink: 0;
+  /* Sit to the left of the dropdown, outside its width */
+  position: absolute;
+  right: calc(100% + 0.4rem);
+  top: 50%;
+  transform: translateY(-50%);
 }
 
-.etym-dropdown-item:hover .etym-delete-btn { opacity: 1; }
+.etym-dropdown-row:hover .etym-delete-btn { opacity: 1; }
 .etym-delete-btn:hover { color: var(--red); border-color: #d4a0a0; }
 
 /* ── Subgraph tabs (left of Lexicon) ── */
@@ -531,7 +545,6 @@ nav {
 
 .graph-controls {
   padding: 0.4rem 0.75rem;
-  border-bottom: 1px solid var(--paper-dark);
   display: flex;
   align-items: center;
   flex-shrink: 0;
@@ -1254,14 +1267,22 @@ function renderSubgraphDropdown() {
   empty.style.display = savedSubgraphs.length ? 'none' : '';
 
   savedSubgraphs.forEach(sg => {
+    const row = document.createElement('div');
+    row.className = 'etym-dropdown-row';
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'etym-delete-btn';
+    delBtn.textContent = '✕ Delete';
+    delBtn.addEventListener('click', e => deleteSubgraphFromCloud(sg.id, e));
+
     const item = document.createElement('div');
     item.className = 'etym-dropdown-item';
-    item.innerHTML = `
-      <button class="etym-delete-btn" title="Delete">✕ Delete</button>
-      <span class="etym-dropdown-item-title">${esc(sg.title)}</span>`;
-    item.querySelector('.etym-delete-btn').addEventListener('click', e => deleteSubgraphFromCloud(sg.id, e));
+    item.innerHTML = `<span class="etym-dropdown-item-title">${esc(sg.title)}</span>`;
     item.addEventListener('click', () => openSubgraphTab(sg));
-    dropdown.appendChild(item);
+
+    row.appendChild(delBtn);
+    row.appendChild(item);
+    dropdown.appendChild(row);
   });
 }
 
