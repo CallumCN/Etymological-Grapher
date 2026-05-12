@@ -1649,19 +1649,20 @@ function renderGraph(focusId) {
 
           // Cascade down: push descendants below dragged node if constraint violated
           if (nodeY >= highestChildY) {
-            const visitedDown = new Set([...selected]);
+            const visitCount = {};
             function previewDown(id) {
               const myY = pos[id]?.y;
               if (myY === undefined) return;
               visChildren(id).forEach(cid => {
-                if (visitedDown.has(cid) || !pos[cid]) return;
-                visitedDown.add(cid);
+                if (!pos[cid]) return;
+                visitCount[cid] = (visitCount[cid] || 0) + 1;
+                if (visitCount[cid] > nodes.length) return; // cycle guard
                 if (pos[cid].y <= myY) {
                   pos[cid].y = myY + ROW_H;
                   gNodes.select(`g.node-grp[data-id="${cid}"]`)
                     .attr('transform', `translate(${pos[cid].x},${pos[cid].y})`);
                 }
-                previewDown(cid); // always recurse
+                previewDown(cid);
               });
             }
             previewDown(draggedId);
@@ -1669,19 +1670,20 @@ function renderGraph(focusId) {
 
           // Cascade up: push ancestors above dragged node if constraint violated
           if (nodeY <= lowestParentY) {
-            const visitedUp = new Set([...selected]);
+            const visitCount = {};
             function previewUp(id) {
               const myY = pos[id]?.y;
               if (myY === undefined) return;
               visParents(id).forEach(pid => {
-                if (visitedUp.has(pid) || !pos[pid]) return;
-                visitedUp.add(pid);
+                if (!pos[pid]) return;
+                visitCount[pid] = (visitCount[pid] || 0) + 1;
+                if (visitCount[pid] > nodes.length) return; // cycle guard
                 if (pos[pid].y >= myY) {
                   pos[pid].y = myY - ROW_H;
                   gNodes.select(`g.node-grp[data-id="${pid}"]`)
                     .attr('transform', `translate(${pos[pid].x},${pos[pid].y})`);
                 }
-                previewUp(pid); // always recurse
+                previewUp(pid);
               });
             }
             previewUp(draggedId);
