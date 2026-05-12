@@ -139,7 +139,8 @@ nav {
 .etym-dropdown {
   position: absolute;
   top: 100%;
-  right: 0;
+  left: 0;   /* align left edge with button left edge */
+  right: auto;
   min-width: 200px;
   background: var(--paper);
   border: 1px solid var(--paper-dark);
@@ -202,9 +203,9 @@ nav {
   transition: opacity 0.15s, color 0.15s;
   white-space: nowrap;
   flex-shrink: 0;
-  /* Sit to the left of the dropdown, outside its width */
+  /* Sit to the left of the dropdown row, mirroring the New button position */
   position: absolute;
-  right: calc(100% + 0.4rem);
+  right: calc(100% + 0.5rem);
   top: 50%;
   transform: translateY(-50%);
 }
@@ -384,7 +385,12 @@ nav {
   box-shadow: 0 4px 12px rgba(26,24,20,0.08);
   z-index: 300;
   flex-direction: column;
+  display: none; /* shown on hover below */
+  padding-top: 4px;
+  margin-top: -4px; /* bridge gap */
 }
+
+.add-to-etym-wrap:hover .add-to-etym-dropdown { display: flex; }
 
 .add-to-etym-item {
   font-family: 'DM Mono', monospace;
@@ -882,8 +888,6 @@ nav {
 
 <div id="auth-overlay">
   <div class="auth-inner">
-    <p class="auth-title">Conlang Lexicon</p>
-    <p class="auth-sub">Loading…</p>
   </div>
 </div>
 
@@ -1052,8 +1056,20 @@ function init() {
   bindSearch();
   bindNavTabs();
   buildAncestorSlots();
-  // Default to full graph view
-  showView('graph');
+  // Restore last view from localStorage, defaulting to lexicon
+  const lastView = localStorage.getItem('last_view') || 'lexicon';
+  if (lastView === 'graph') {
+    showView('graph');
+  } else {
+    showView('lexicon');
+  }
+}
+
+// Persist current view whenever it changes
+function saveViewState() {
+  localStorage.setItem('last_view', currentView === 'graph' ? 'graph' : 'lexicon');
+  localStorage.setItem('open_subgraph_tabs', JSON.stringify(openSubgraphs.map(s => s.id)));
+  localStorage.setItem('active_subgraph_id', activeSubgraphId || '');
 }
 
 // ─── LOCAL STORAGE ────────────────────────
@@ -1207,8 +1223,8 @@ function renderDetail(id) {
     <div class="detail-actions">
       <button class="btn-sm" onclick="editWord('${w.id}')">Edit</button>
       <div class="add-to-etym-wrap">
-        <button class="btn-sm" onclick="toggleAddToEtym('${w.id}')">Add to etymology ▾</button>
-        <div class="add-to-etym-dropdown" id="add-to-etym-dd-${w.id}" style="display:none">
+        <button class="btn-sm">Add to etymology ▾</button>
+        <div class="add-to-etym-dropdown" id="add-to-etym-dd-${w.id}">
           ${savedSubgraphs.length === 0
             ? '<span class="add-to-etym-empty">No saved etymologies</span>'
             : savedSubgraphs.map(sg => `
@@ -1236,9 +1252,9 @@ function deleteWord(id) {
 
 // ─── VIEWS ────────────────────────────────
 function showView(v, subgraphId) {
-  // subgraphId: if provided, show a subgraph tab rather than the global graph
   activeSubgraphId = subgraphId || null;
   currentView = v;
+  saveViewState();
 
   document.getElementById('tab-lexicon').classList.toggle('active', v === 'lexicon' && !activeSubgraphId);
   document.querySelectorAll('.subgraph-tab').forEach(t => {
@@ -1292,6 +1308,26 @@ async function loadSubgraphs() {
   if (error) { console.error('loadSubgraphs:', error); return; }
   savedSubgraphs = data || [];
   renderSubgraphDropdown();
+
+  // Restore previously open tabs
+  const openIds = JSON.parse(localStorage.getItem('open_subgraph_tabs') || '[]');
+  const activeId = localStorage.getItem('active_subgraph_id');
+  openIds.forEach(id => {
+    const sg = savedSubgraphs.find(s => s.id === id);
+    if (sg && !openSubgraphs.find(o => o.id === id)) {
+      openSubgraphs.push({ id: sg.id, title: sg.title, nodeIds: sg.node_ids||[], positions: sg.positions||{} });
+    }
+  });
+  if (openSubgraphs.length) renderSubgraphTabs();
+
+  // Restore last view
+  const lastView = localStorage.getItem('last_view') || 'lexicon';
+  if (lastView === 'graph' && activeId && openSubgraphs.find(s => s.id === activeId)) {
+    showView('graph', activeId);
+  } else if (lastView === 'graph') {
+    showView('graph');
+  }
+  // (if lexicon, init() already showed it — don't override)
 }
 
 async function saveSubgraphToCloud(sg) {
@@ -2241,11 +2277,14 @@ function renderGraph(focusId, subgraph) {
         e.sourceEvent.stopPropagation();
         dragMoved   = false;
         dragTotalDy = 0;
-        if (!selected.has(d.id)) setSelected([d.id]);
+        // If shift is held, don't replace selection — add to it
+        if (!e.sourceEvent.shiftKey && !selected.has(d.id)) {
+          setSelected([d.id]);
+        }
         // Snapshot y of each selected node
         dragStartY = {};
         selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
-        // Snapshot x,y of every non-selected node so we can restore before each frame
+        // Snapshot x,y of every non-selected node
         posSnapshot = {};
         nodes.forEach(n => {
           if (!selected.has(n.id) && pos[n.id])
