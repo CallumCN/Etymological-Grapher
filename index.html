@@ -824,11 +824,6 @@ async function loadFromSupabase() {
   if (!supabase || !currentUserId) return;
   setSyncStatus('saving', 'loading…');
   try {
-    // Debug: verify the session is attached
-    const { data: { session } } = await supabase.auth.getSession();
-    console.log('load: session user', session?.user?.id, 'currentUserId', currentUserId);
-    console.log('load: access_token present', !!session?.access_token);
-
     const { data, error } = await supabase
       .from('lexicons')
       .select('words')
