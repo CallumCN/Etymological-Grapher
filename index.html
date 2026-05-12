@@ -86,6 +86,162 @@ nav {
 .nav-tab:hover { color: var(--ink-mid); }
 .nav-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
 
+/* ── Etymologies dropdown ── */
+.etym-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.etym-menu-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-light);
+  cursor: pointer;
+  padding: 0.3rem 0.75rem;
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.etym-menu-btn:hover { color: var(--ink-mid); }
+.etym-menu-btn.has-active { color: var(--amber); border-bottom-color: var(--amber); }
+
+.etym-new-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--amber);
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--amber-light);
+  background: var(--amber-pale);
+  transition: background 0.15s;
+  white-space: nowrap;
+  display: none;
+}
+
+.etym-new-btn:hover { background: var(--amber-light); }
+
+.etym-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 200px;
+  background: var(--paper);
+  border: 1px solid var(--paper-dark);
+  z-index: 200;
+  display: none;
+  flex-direction: column;
+  box-shadow: 0 4px 16px rgba(26,24,20,0.08);
+}
+
+.etym-menu:hover .etym-new-btn,
+.etym-menu:hover .etym-dropdown { display: flex; }
+
+.etym-dropdown-empty {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.65rem;
+  color: var(--ink-light);
+  padding: 0.75rem 1rem;
+  letter-spacing: 0.06em;
+}
+
+.etym-dropdown-item {
+  display: flex;
+  align-items: center;
+  padding: 0.5rem 0.75rem;
+  cursor: pointer;
+  transition: background 0.1s;
+  gap: 0.5rem;
+}
+
+.etym-dropdown-item:hover { background: var(--paper-mid); }
+
+.etym-dropdown-item-title {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.7rem;
+  color: var(--ink-mid);
+  flex: 1;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.etym-delete-btn {
+  font-family: 'DM Mono', monospace;
+  font-size: 0.6rem;
+  color: var(--ink-light);
+  padding: 0.1rem 0.4rem;
+  border: 1px solid var(--paper-dark);
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.etym-dropdown-item:hover .etym-delete-btn { opacity: 1; }
+.etym-delete-btn:hover { color: var(--red); border-color: #d4a0a0; }
+
+/* ── Subgraph tabs (left of Lexicon) ── */
+.subgraph-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.subgraph-tab {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  color: var(--ink-light);
+  cursor: pointer;
+  padding: 0.3rem 0.6rem 0.3rem 0.75rem;
+  border-bottom: 2px solid transparent;
+  border-right: 1px solid var(--paper-dark);
+  transition: color 0.15s, border-color 0.15s;
+  user-select: none;
+  max-width: 140px;
+}
+
+.subgraph-tab:hover { color: var(--ink-mid); background: var(--paper-mid); }
+.subgraph-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+.subgraph-tab-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.subgraph-tab-title[contenteditable=true] {
+  outline: none;
+  border-bottom: 1px solid var(--amber);
+  color: var(--ink);
+}
+
+.subgraph-tab-close {
+  font-size: 0.65rem;
+  color: var(--ink-light);
+  line-height: 1;
+  flex-shrink: 0;
+  padding: 0 0.1rem;
+  transition: color 0.15s;
+}
+
+.subgraph-tab:hover .subgraph-tab-close { color: var(--ink-mid); }
+.subgraph-tab-close:hover { color: var(--red) !important; }
+
 .sync-status {
   font-family: 'DM Mono', monospace;
   font-size: 0.62rem;
@@ -684,8 +840,15 @@ nav {
       <span class="sync-dot"></span>
       <span id="sync-label">loading</span>
     </div>
-    <span class="nav-tab active" data-view="lexicon">Lexicon</span>
-    <span class="nav-tab" data-view="graph">Etymology</span>
+    <div class="subgraph-tabs" id="subgraph-tabs"></div>
+    <span class="nav-tab active" data-view="lexicon" id="tab-lexicon">Lexicon</span>
+    <div class="etym-menu" id="etym-menu">
+      <span class="etym-new-btn" onclick="newSubgraph(event)">+ New</span>
+      <span class="etym-menu-btn" id="etym-menu-btn">Etymologies</span>
+      <div class="etym-dropdown" id="etym-dropdown">
+        <span class="etym-dropdown-empty" id="etym-dropdown-empty">No saved etymologies</span>
+      </div>
+    </div>
     <span class="nav-tab" style="color:var(--ink-light)" onclick="doSignOut()">Sign out</span>
   </div>
 </nav>
@@ -780,6 +943,8 @@ let editingId     = null;
 let activeWordId  = null;
 let currentView   = 'lexicon';
 let graphFocusNode = null;
+let openSubgraphs  = [];   // [{id, title, nodeIds, positions}]
+let activeSubgraphId = null; // id of currently-shown subgraph tab, or null
 let saveTimeout   = null;
 let supabase      = null;
 let currentUserId = null;
@@ -877,6 +1042,7 @@ async function loadFromSupabase() {
       if (currentView === 'graph') renderGraph(graphFocusNode);
     }
     setSyncStatus('saved', 'Saved');
+    loadSubgraphs(); // also load saved subgraphs
   } catch(e) {
     console.error('Supabase load exception:', e);
     setSyncStatus('error', 'load failed');
@@ -1000,26 +1166,229 @@ function deleteWord(id) {
 }
 
 // ─── VIEWS ────────────────────────────────
-function showView(v) {
+function showView(v, subgraphId) {
+  // subgraphId: if provided, show a subgraph tab rather than the global graph
+  activeSubgraphId = subgraphId || null;
   currentView = v;
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.toggle('active', t.dataset.view === v));
+
+  document.getElementById('tab-lexicon').classList.toggle('active', v === 'lexicon' && !activeSubgraphId);
+  document.querySelectorAll('.subgraph-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.sgid === activeSubgraphId);
+  });
+
+  // Etym menu button shows active state if we're in a subgraph or graph view
+  const etymBtn = document.getElementById('etym-menu-btn');
+  if (v === 'graph' && !activeSubgraphId) {
+    etymBtn.textContent = 'Etymology';
+    etymBtn.classList.remove('has-active');
+  } else if (v === 'graph' && activeSubgraphId) {
+    etymBtn.textContent = 'Etymologies';
+    etymBtn.classList.add('has-active');
+  } else {
+    etymBtn.textContent = 'Etymologies';
+    etymBtn.classList.remove('has-active');
+  }
+
   document.getElementById('lexicon-view').style.display = v === 'lexicon' ? 'flex' : 'none';
   document.getElementById('form-view').classList.toggle('active', v === 'form');
   document.getElementById('graph-view').classList.toggle('active', v === 'graph');
-  if (v === 'graph') renderGraph(graphFocusNode);
+
+  if (v === 'graph') {
+    if (activeSubgraphId) {
+      const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+      renderSubgraph(sg);
+    } else {
+      graphFocusNode = null;
+      focusedVisible = null;
+      renderGraph(null);
+    }
+  }
 }
 
 function bindNavTabs() {
-  document.querySelectorAll('.nav-tab').forEach(t => {
-    t.addEventListener('click', () => {
-      if (t.dataset.view === 'graph') {
-        graphFocusNode = null;
-        focusedVisible = null;
-      }
-      showView(t.dataset.view);
-    });
+  document.getElementById('tab-lexicon').addEventListener('click', () => showView('lexicon'));
+}
+
+// ─── SUBGRAPH SYSTEM ──────────────────────
+let savedSubgraphs = []; // [{id, title, node_ids, positions}] from Supabase
+
+async function loadSubgraphs() {
+  if (!supabase || !currentUserId) return;
+  const { data, error } = await supabase
+    .from('subgraphs')
+    .select('id, title, node_ids, positions')
+    .eq('user_id', currentUserId)
+    .order('updated_at', { ascending: false });
+  if (error) { console.error('loadSubgraphs:', error); return; }
+  savedSubgraphs = data || [];
+  renderSubgraphDropdown();
+}
+
+async function saveSubgraphToCloud(sg) {
+  if (!supabase || !currentUserId) return;
+  const { error } = await supabase.from('subgraphs').upsert({
+    id: sg.id,
+    user_id: currentUserId,
+    title: sg.title,
+    node_ids: sg.nodeIds,
+    positions: sg.positions,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: 'id' });
+  if (error) console.error('saveSubgraph:', error);
+  else {
+    // Update savedSubgraphs list
+    const idx = savedSubgraphs.findIndex(s => s.id === sg.id);
+    const row = { id: sg.id, title: sg.title, node_ids: sg.nodeIds, positions: sg.positions };
+    if (idx >= 0) savedSubgraphs[idx] = row;
+    else savedSubgraphs.unshift(row);
+    renderSubgraphDropdown();
+  }
+}
+
+async function deleteSubgraphFromCloud(id, e) {
+  e.stopPropagation();
+  if (!supabase || !currentUserId) return;
+  const { error } = await supabase.from('subgraphs').delete().eq('id', id).eq('user_id', currentUserId);
+  if (error) { console.error('deleteSubgraph:', error); return; }
+  savedSubgraphs = savedSubgraphs.filter(s => s.id !== id);
+  renderSubgraphDropdown();
+  // Close the tab if open
+  closeSubgraphTab(id);
+}
+
+function renderSubgraphDropdown() {
+  const dropdown = document.getElementById('etym-dropdown');
+  const empty    = document.getElementById('etym-dropdown-empty');
+  // Remove old items (keep empty msg)
+  dropdown.querySelectorAll('.etym-dropdown-item').forEach(el => el.remove());
+  empty.style.display = savedSubgraphs.length ? 'none' : '';
+
+  savedSubgraphs.forEach(sg => {
+    const item = document.createElement('div');
+    item.className = 'etym-dropdown-item';
+    item.innerHTML = `
+      <button class="etym-delete-btn" title="Delete">✕</button>
+      <span class="etym-dropdown-item-title">${esc(sg.title)}</span>`;
+    item.querySelector('.etym-delete-btn').addEventListener('click', e => deleteSubgraphFromCloud(sg.id, e));
+    item.addEventListener('click', () => openSubgraphTab(sg));
+    dropdown.appendChild(item);
   });
 }
+
+function openSubgraphTab(sgRow) {
+  // If already open, just switch to it
+  const already = openSubgraphs.find(s => s.id === sgRow.id);
+  if (already) { showView('graph', sgRow.id); return; }
+
+  const sg = {
+    id:        sgRow.id,
+    title:     sgRow.title,
+    nodeIds:   sgRow.node_ids || [],
+    positions: sgRow.positions || {},
+  };
+  openSubgraphs.push(sg);
+  renderSubgraphTabs();
+  showView('graph', sg.id);
+}
+
+function closeSubgraphTab(id) {
+  openSubgraphs = openSubgraphs.filter(s => s.id !== id);
+  renderSubgraphTabs();
+  if (activeSubgraphId === id) showView('lexicon');
+}
+
+function renderSubgraphTabs() {
+  const container = document.getElementById('subgraph-tabs');
+  container.innerHTML = '';
+  openSubgraphs.forEach(sg => {
+    const tab = document.createElement('div');
+    tab.className = 'subgraph-tab' + (sg.id === activeSubgraphId ? ' active' : '');
+    tab.dataset.sgid = sg.id;
+
+    const title = document.createElement('span');
+    title.className = 'subgraph-tab-title';
+    title.textContent = sg.title;
+    title.title = sg.title;
+
+    // Click title to edit inline
+    title.addEventListener('click', e => {
+      e.stopPropagation();
+      title.contentEditable = 'true';
+      title.focus();
+      // Select all text
+      const range = document.createRange();
+      range.selectNodeContents(title);
+      window.getSelection().removeAllRanges();
+      window.getSelection().addRange(range);
+    });
+    title.addEventListener('blur', () => {
+      title.contentEditable = 'false';
+      const newTitle = title.textContent.trim() || sg.title;
+      title.textContent = newTitle;
+      if (newTitle !== sg.title) {
+        sg.title = newTitle;
+        saveSubgraphToCloud(sg);
+      }
+    });
+    title.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); title.blur(); }
+      if (e.key === 'Escape') { title.textContent = sg.title; title.blur(); }
+    });
+
+    const closeBtn = document.createElement('span');
+    closeBtn.className = 'subgraph-tab-close';
+    closeBtn.textContent = '✕';
+    closeBtn.title = 'Close';
+    closeBtn.addEventListener('click', e => { e.stopPropagation(); closeSubgraphTab(sg.id); });
+
+    tab.appendChild(title);
+    tab.appendChild(closeBtn);
+    tab.addEventListener('click', () => showView('graph', sg.id));
+    container.appendChild(tab);
+  });
+}
+
+function newSubgraph(e) {
+  e.stopPropagation();
+  // Create a new subgraph, save it, then open it
+  const sg = {
+    id:        crypto.randomUUID(),
+    title:     'Untitled',
+    nodeIds:   [],
+    positions: {},
+  };
+  openSubgraphs.push(sg);
+  saveSubgraphToCloud(sg);
+  renderSubgraphTabs();
+  showView('graph', sg.id);
+}
+
+// ─── SUBGRAPH RENDER ──────────────────────
+// Renders a saved subgraph — like the focused graph but using a named node set
+// and persisting positions back to Supabase on any change.
+function renderSubgraph(sg) {
+  if (!sg) return;
+
+  // Save current positions back into the subgraph before re-rendering
+  // (called when switching away — handled in the render function itself)
+  graphFocusNode = null;
+  focusedVisible = new Set(sg.nodeIds);
+
+  // Temporarily override focusedVisible for renderGraph to use
+  // We re-use the existing focused graph machinery
+  renderGraph(null, sg);
+}
+
+window.addEventListener('resize', () => {
+  if (currentView === 'graph') {
+    if (activeSubgraphId) {
+      const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+      renderSubgraph(sg);
+    } else {
+      renderGraph(graphFocusNode);
+    }
+  }
+});
 
 // ─── FORM ─────────────────────────────────
 function showAddForm() {
@@ -1469,7 +1838,7 @@ function computeLayout(nodes) {
 // Per-render mutable state (reset on each renderGraph call)
 let graphState = null;
 
-function renderGraph(focusId) {
+function renderGraph(focusId, subgraph) {
   // Tear down old keydown listener and wheel handler
   if (graphState && graphState.keyHandler) {
     window.removeEventListener('keydown', graphState.keyHandler);
@@ -1482,8 +1851,13 @@ function renderGraph(focusId) {
   const tooltip = document.getElementById('graph-tooltip');
   svgEl.innerHTML = '';
 
+  // Determine node set
   let nodes;
-  if (focusId && focusedVisible) {
+  if (subgraph) {
+    nodes = DB.filter(n => subgraph.nodeIds.includes(n.id));
+    document.getElementById('graph-scope').textContent =
+      `${esc(subgraph.title)} — hover nodes to expand, drag to rearrange`;
+  } else if (focusId && focusedVisible) {
     nodes = DB.filter(n => focusedVisible.has(n.id));
     document.getElementById('graph-scope').textContent =
       `"${DB.find(x=>x.id===focusId)?.word}" — hover nodes to expand`;
@@ -1497,7 +1871,7 @@ function renderGraph(focusId) {
     t.setAttribute('x','50%'); t.setAttribute('y','50%');
     t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','12');
     t.setAttribute('fill','#8a8680'); t.setAttribute('font-family','DM Mono,monospace');
-    t.textContent = 'No words yet';
+    t.textContent = subgraph ? 'Empty subgraph — add words by hovering nodes in Full Graph' : 'No words yet';
     svgEl.appendChild(t); return;
   }
 
@@ -1530,11 +1904,22 @@ function renderGraph(focusId) {
   const padX = 30, padY = 40;
   const pos = {};  // mutable; updated by drag
   nodes.forEach(n => {
-    pos[n.id] = {
-      x: padX + (xRank[n.id]||0) * colW,
-      y: padY + depth[n.id] * ROW_H,
-    };
+    // Use saved positions for subgraph nodes if available
+    const saved = subgraph?.positions?.[n.id];
+    pos[n.id] = saved
+      ? { x: saved.x, y: saved.y }
+      : { x: padX + (xRank[n.id]||0) * colW, y: padY + depth[n.id] * ROW_H };
   });
+
+  // Helper to persist subgraph positions after any move
+  let sgSaveTimeout = null;
+  function scheduleSubgraphSave() {
+    if (!subgraph) return;
+    subgraph.positions = {};
+    nodes.forEach(n => { subgraph.positions[n.id] = { x: pos[n.id].x, y: pos[n.id].y }; });
+    clearTimeout(sgSaveTimeout);
+    sgSaveTimeout = setTimeout(() => saveSubgraphToCloud(subgraph), 1000);
+  }
 
   // ── Selection state ──
   const selected = new Set();
@@ -1822,6 +2207,7 @@ function renderGraph(focusId) {
           if (parentYs.length && myY <= Math.max(...parentYs)) snapDepths(draggedId, 'up');
         });
         redrawEdges();
+        scheduleSubgraphSave();
       })
     );
 
@@ -1954,6 +2340,10 @@ function renderGraph(focusId) {
           if (focusId && focusedVisible) {
             focusedVisible.add(gid);
           }
+          // Also add to subgraph nodeIds if we're in a subgraph
+          if (subgraph && !subgraph.nodeIds.includes(gid)) {
+            subgraph.nodeIds.push(gid);
+          }
           // Adopt the ghost's position into the live pos map
           pos[gid] = { ...ghostPos[gid] };
           // Add to nodes array
@@ -1997,6 +2387,7 @@ function renderGraph(focusId) {
               snapDepths(gid, 'down');
             }
           }
+          scheduleSubgraphSave();
           // Remove just this ghost node
           grp.remove();
           // Remove ghost edges for this id (dashed paths touching this ghost)
@@ -2166,7 +2557,20 @@ function renderGraph(focusId) {
       if (selected.size === 0) return;
       const toDelete = [...selected];
 
-      if (focusId && focusedVisible) {
+      if (subgraph) {
+        // Subgraph mode: remove from this subgraph's view only
+        toDelete.forEach(id => {
+          subgraph.nodeIds = subgraph.nodeIds.filter(nid => nid !== id);
+          delete pos[id];
+          const idx = nodes.findIndex(n => n.id === id);
+          if (idx !== -1) nodes.splice(idx, 1);
+          gNodes.select(`g.node-grp[data-id="${id}"]`).remove();
+        });
+        selected.clear();
+        redrawEdges();
+        clearGhost();
+        scheduleSubgraphSave();
+      } else if (focusId && focusedVisible) {
         // Focused mode: just remove from view, no DB change
         toDelete.forEach(id => {
           focusedVisible.delete(id);
@@ -2242,8 +2646,6 @@ function renderGraph(focusId) {
 function reCenterGraph() {
   if (graphState && graphState.fitToView) graphState.fitToView();
 }
-
-window.addEventListener('resize', () => { if (currentView === 'graph') renderGraph(graphFocusNode); });
 
 // ─── IMPORT / EXPORT ──────────────────────
 function exportLexicon() {
