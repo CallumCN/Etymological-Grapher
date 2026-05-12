@@ -1581,35 +1581,40 @@ function renderGraph(focusId) {
   // Attach drag + hover behavior to a node group selection (works for initial and added nodes)
   function attachNodeBehavior(sel, datum) {
     let dragMoved = false;
+    let dragStartY = {};    // id → y at drag start
+    let dragTotalDy = 0;   // cumulative raw dy since drag start
 
     sel.call(d3.drag()
       .on('start', (e, d) => {
         e.sourceEvent.stopPropagation();
         dragMoved = false;
+        dragTotalDy = 0;
         if (!selected.has(d.id)) setSelected([d.id]);
+        // Snapshot each selected node's y at drag start
+        dragStartY = {};
+        selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
       })
       .on('drag', (e, d) => {
         dragMoved = true;
         if (ghost) clearGhost();
 
-        // Move x freely for all selected nodes; snap y to nearest row for the
-        // primary dragged node, shift other selected nodes by the same dy.
         const byId = {};
         nodes.forEach(n => { byId[n.id] = n; });
         const visParents  = id => ((byId[id]?.ancestors)||[]).filter(a => byId[a]);
         const visChildren = id => nodes.filter(n => (n.ancestors||[]).includes(id)).map(n => n.id);
 
-        // Snap the dragged node's y to the nearest row
-        const rawY       = (pos[d.id]?.y ?? 0) + e.dy;
-        const snappedRow = Math.round(rawY / ROW_H);
-        const snappedY   = snappedRow * ROW_H;
-        const dy         = snappedY - (pos[d.id]?.y ?? 0);
+        // Accumulate raw dy from drag start, then snap to nearest ROW_H from start y
+        dragTotalDy += e.dy;
+        const snappedRow = Math.round(dragTotalDy / ROW_H);
+        const snappedDy  = snappedRow * ROW_H;
 
-        // Move all selected nodes
+        // Move all selected nodes to their start y + snapped offset
         selected.forEach(id => {
-          if (!pos[id]) return;
+          if (!pos[id] || dragStartY[id] === undefined) return;
+          const newY = dragStartY[id] + snappedDy;
+          const dy   = newY - pos[id].y;
           pos[id].x += e.dx;
-          pos[id].y += dy;
+          pos[id].y  = newY;
           gNodes.select(`g.node-grp[data-id="${id}"]`)
             .attr('transform', `translate(${pos[id].x},${pos[id].y})`);
         });
