@@ -1580,19 +1580,26 @@ function renderGraph(focusId) {
 
   // Attach drag + hover behavior to a node group selection (works for initial and added nodes)
   function attachNodeBehavior(sel, datum) {
-    let dragMoved = false;
-    let dragStartY = {};    // id → y at drag start
-    let dragTotalDy = 0;   // cumulative raw dy since drag start
+    let dragMoved    = false;
+    let dragStartY   = {};   // selected id → y at drag start
+    let dragTotalDy  = 0;    // cumulative raw dy since drag start
+    let posSnapshot  = {};   // non-selected id → {x,y} at drag start
 
     sel.call(d3.drag()
       .on('start', (e, d) => {
         e.sourceEvent.stopPropagation();
-        dragMoved = false;
+        dragMoved   = false;
         dragTotalDy = 0;
         if (!selected.has(d.id)) setSelected([d.id]);
-        // Snapshot each selected node's y at drag start
+        // Snapshot y of each selected node
         dragStartY = {};
         selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
+        // Snapshot x,y of every non-selected node so we can restore before each frame
+        posSnapshot = {};
+        nodes.forEach(n => {
+          if (!selected.has(n.id) && pos[n.id])
+            posSnapshot[n.id] = { x: pos[n.id].x, y: pos[n.id].y };
+        });
       })
       .on('drag', (e, d) => {
         dragMoved = true;
@@ -1603,71 +1610,81 @@ function renderGraph(focusId) {
         const visParents  = id => ((byId[id]?.ancestors)||[]).filter(a => byId[a]);
         const visChildren = id => nodes.filter(n => (n.ancestors||[]).includes(id)).map(n => n.id);
 
-        // Accumulate raw dy from drag start, then snap to nearest ROW_H from start y
+        // Accumulate raw dy; snap to nearest ROW_H from each node's start y
         dragTotalDy += e.dy;
         const snappedRow = Math.round(dragTotalDy / ROW_H);
         const snappedDy  = snappedRow * ROW_H;
 
-        // Move all selected nodes to their start y + snapped offset
+        // Restore all non-selected nodes to their drag-start positions
+        // so each frame starts clean and cascades don't accumulate
+        Object.entries(posSnapshot).forEach(([id, p]) => {
+          if (!pos[id]) return;
+          pos[id].x = p.x;
+          pos[id].y = p.y;
+          gNodes.select(`g.node-grp[data-id="${id}"]`)
+            .attr('transform', `translate(${p.x},${p.y})`);
+        });
+
+        // Move all selected nodes to start y + snapped offset
         selected.forEach(id => {
           if (!pos[id] || dragStartY[id] === undefined) return;
-          const newY = dragStartY[id] + snappedDy;
-          const dy   = newY - pos[id].y;
           pos[id].x += e.dx;
-          pos[id].y  = newY;
+          pos[id].y  = dragStartY[id] + snappedDy;
           gNodes.select(`g.node-grp[data-id="${id}"]`)
             .attr('transform', `translate(${pos[id].x},${pos[id].y})`);
         });
 
-        // Preview cascades for all dragged nodes, skipping other selected nodes
+        // Preview cascades for each dragged node, skipping other selected nodes
         selected.forEach(draggedId => {
           const nodeY = pos[draggedId]?.y;
           if (nodeY === undefined) return;
 
-          const childYs2 = visChildren(draggedId).filter(cid => !selected.has(cid))
-            .map(cid => pos[cid]?.y).filter(y => y !== undefined);
-          const parentYs2 = visParents(draggedId).filter(pid => !selected.has(pid))
-            .map(pid => pos[pid]?.y).filter(y => y !== undefined);
+          const nonSelectedChildYs  = visChildren(draggedId).filter(c => !selected.has(c))
+            .map(c => pos[c]?.y).filter(y => y !== undefined);
+          const nonSelectedParentYs = visParents(draggedId).filter(p => !selected.has(p))
+            .map(p => pos[p]?.y).filter(y => y !== undefined);
 
-          const highestChildY2  = childYs2.length  ? Math.min(...childYs2)  : Infinity;
-          const lowestParentY2  = parentYs2.length ? Math.max(...parentYs2) : -Infinity;
+          const highestChildY = nonSelectedChildYs.length  ? Math.min(...nonSelectedChildYs)  : Infinity;
+          const lowestParentY = nonSelectedParentYs.length ? Math.max(...nonSelectedParentYs) : -Infinity;
 
-          if (nodeY >= highestChildY2) {
+          // Cascade down: push descendants below dragged node if constraint violated
+          if (nodeY >= highestChildY) {
             const visitedDown = new Set([...selected]);
-            function previewDown2(id) {
-              if (!pos[id]) return;
-              const y = pos[id].y;
+            function previewDown(id) {
+              const myY = pos[id]?.y;
+              if (myY === undefined) return;
               visChildren(id).forEach(cid => {
                 if (visitedDown.has(cid) || !pos[cid]) return;
                 visitedDown.add(cid);
-                if (pos[cid].y <= y) {
-                  pos[cid].y = y + ROW_H;
+                if (pos[cid].y <= myY) {
+                  pos[cid].y = myY + ROW_H;
                   gNodes.select(`g.node-grp[data-id="${cid}"]`)
                     .attr('transform', `translate(${pos[cid].x},${pos[cid].y})`);
                 }
-                previewDown2(cid);
+                previewDown(cid); // always recurse
               });
             }
-            previewDown2(draggedId);
+            previewDown(draggedId);
           }
 
-          if (nodeY <= lowestParentY2) {
+          // Cascade up: push ancestors above dragged node if constraint violated
+          if (nodeY <= lowestParentY) {
             const visitedUp = new Set([...selected]);
-            function previewUp2(id) {
-              if (!pos[id]) return;
-              const y = pos[id].y;
+            function previewUp(id) {
+              const myY = pos[id]?.y;
+              if (myY === undefined) return;
               visParents(id).forEach(pid => {
                 if (visitedUp.has(pid) || !pos[pid]) return;
                 visitedUp.add(pid);
-                if (pos[pid].y >= y) {
-                  pos[pid].y = y - ROW_H;
+                if (pos[pid].y >= myY) {
+                  pos[pid].y = myY - ROW_H;
                   gNodes.select(`g.node-grp[data-id="${pid}"]`)
                     .attr('transform', `translate(${pos[pid].x},${pos[pid].y})`);
                 }
-                previewUp2(pid);
+                previewUp(pid); // always recurse
               });
             }
-            previewUp2(draggedId);
+            previewUp(draggedId);
           }
         });
 
@@ -1685,7 +1702,7 @@ function renderGraph(focusId) {
           return;
         }
 
-        // On drop: finalise cascades for all dragged nodes
+        // Finalise cascades for all dragged nodes on drop
         selected.forEach(draggedId => {
           const byId2 = {};
           nodes.forEach(n => { byId2[n.id] = n; });
@@ -1694,15 +1711,13 @@ function renderGraph(focusId) {
 
           const myY = pos[draggedId]?.y;
           if (myY === undefined) return;
-          const childYs = visChildren2(draggedId).filter(c => !selected.has(c))
+          const childYs  = visChildren2(draggedId).filter(c => !selected.has(c))
             .map(c => pos[c]?.y).filter(y => y !== undefined);
           const parentYs = visParents2(draggedId).filter(p => !selected.has(p))
             .map(p => pos[p]?.y).filter(y => y !== undefined);
-          const highestChildY = childYs.length  ? Math.min(...childYs)  : Infinity;
-          const lowestParentY = parentYs.length ? Math.max(...parentYs) : -Infinity;
 
-          if (myY >= highestChildY) snapDepths(draggedId, 'down');
-          if (myY <= lowestParentY) snapDepths(draggedId, 'up');
+          if (childYs.length  && myY >= Math.min(...childYs))  snapDepths(draggedId, 'down');
+          if (parentYs.length && myY <= Math.max(...parentYs)) snapDepths(draggedId, 'up');
         });
         redrawEdges();
       })
