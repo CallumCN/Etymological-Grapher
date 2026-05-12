@@ -225,6 +225,30 @@ nav {
 
 .add-btn:hover { background: var(--amber); }
 
+.io-row {
+  display: flex;
+  gap: 0;
+  margin: 0 1.25rem 0.75rem;
+  flex-shrink: 0;
+}
+
+.io-btn {
+  flex: 1;
+  padding: 0.35rem 0;
+  font-family: 'DM Mono', monospace;
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: transparent;
+  color: var(--ink-light);
+  border: 1px solid var(--paper-dark);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.io-btn:first-child { border-right: none; }
+.io-btn:hover { background: var(--paper-mid); color: var(--ink-mid); }
+
 .main-panel {
   flex: 1;
   overflow: hidden;
@@ -677,6 +701,11 @@ nav {
     </div>
     <div class="word-list" id="word-list"></div>
     <button class="add-btn" onclick="showAddForm()">+ Add word</button>
+    <div class="io-row">
+      <button class="io-btn" onclick="exportLexicon()">Export</button>
+      <button class="io-btn" onclick="document.getElementById('import-input').click()">Import</button>
+      <input type="file" id="import-input" accept=".json" style="display:none" onchange="importLexicon(this)">
+    </div>
   </aside>
 
   <div class="main-panel">
@@ -2003,7 +2032,57 @@ function reCenterGraph() {
 
 window.addEventListener('resize', () => { if (currentView === 'graph') renderGraph(graphFocusNode); });
 
-// ─── UTILS ────────────────────────────────
+// ─── IMPORT / EXPORT ──────────────────────
+function exportLexicon() {
+  const json = JSON.stringify(DB, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `lexicon-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importLexicon(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    try {
+      const imported = JSON.parse(e.target.result);
+      if (!Array.isArray(imported)) { alert('Invalid file: expected a JSON array.'); return; }
+      // Validate each entry has at least a word field
+      const valid = imported.every(w => typeof w.word === 'string');
+      if (!valid) { alert('Invalid file: each entry must have a "word" field.'); return; }
+
+      const action = DB.length === 0 ? 'replace' :
+        confirm(`Your lexicon has ${DB.length} word(s). Merge imported words in (OK) or replace everything (Cancel)?`)
+          ? 'merge' : 'replace';
+
+      if (action === 'replace') {
+        DB = imported;
+      } else {
+        // Merge: add imported words whose id doesn't already exist
+        const existingIds = new Set(DB.map(w => w.id));
+        const newWords = imported.filter(w => !existingIds.has(w.id));
+        DB = [...DB, ...newWords];
+      }
+      scheduleSync();
+      renderWordList();
+      if (activeWordId && !DB.find(w => w.id === activeWordId)) {
+        activeWordId = null;
+        document.getElementById('detail-pane').style.display = 'none';
+        document.getElementById('empty-state').style.display = 'flex';
+      }
+    } catch {
+      alert('Could not parse file. Make sure it is a valid JSON export from this app.');
+    }
+    // Reset input so the same file can be re-imported if needed
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function esc(s) {
   return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
