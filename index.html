@@ -946,6 +946,11 @@ nav {
       <p class="word-count" id="word-count">0 words</p>
     </div>
     <div class="word-list" id="word-list"></div>
+    <div id="detail-pane" class="word-detail" style="display:none;overflow-y:auto;border-top:1px solid var(--paper-dark);"></div>
+    <div id="empty-state" class="empty-state">
+      <span class="empty-state-glyph">∅</span>
+      <span class="empty-state-text">Select a word or add one</span>
+    </div>
     <button class="add-btn" onclick="showAddForm()">+ Add word</button>
     <div class="io-row">
       <button class="io-btn" onclick="exportLexicon()">Export</button>
@@ -955,14 +960,6 @@ nav {
   </aside>
 
   <div class="main-panel">
-
-    <div id="lexicon-view" style="flex:1;overflow:hidden;display:flex;flex-direction:column;">
-      <div id="detail-pane" class="word-detail" style="display:none;"></div>
-      <div id="empty-state" class="empty-state">
-        <span class="empty-state-glyph">∅</span>
-        <span class="empty-state-text">Select a word or add one</span>
-      </div>
-    </div>
 
     <div class="form-view" id="form-view">
       <h2 class="form-title" id="form-title">Add word</h2>
@@ -1086,7 +1083,6 @@ function init() {
   // Start with lexicon visible — loadSubgraphs will restore correct view after data loads
   currentView = 'lexicon';
   document.getElementById('tab-lexicon').classList.add('active');
-  document.getElementById('lexicon-view').style.display = 'flex';
   document.getElementById('graph-view').classList.remove('active');
 }
 
@@ -1214,7 +1210,6 @@ function bindSearch() {
 function selectWord(id) {
   activeWordId = id;
   renderWordList(document.getElementById('search').value);
-  showView('lexicon');
   renderDetail(id);
 }
 
@@ -1284,34 +1279,32 @@ function showView(v, subgraphId) {
   currentView = v;
   saveViewState();
 
-  document.getElementById('tab-lexicon').classList.toggle('active', v === 'lexicon' && !activeSubgraphId);
+  // Tab highlights
+  // Lexicon tab is active when showing the full graph (no active subgraph)
+  document.getElementById('tab-lexicon').classList.toggle('active',
+    v === 'graph' && !activeSubgraphId);
   document.querySelectorAll('.subgraph-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.sgid === activeSubgraphId);
   });
-
-  // Etym menu button active state
   const etymBtn = document.getElementById('etym-menu-btn');
   etymBtn.classList.toggle('has-active', v === 'graph' && !!activeSubgraphId);
 
-  document.getElementById('lexicon-view').style.display = v === 'lexicon' ? 'flex' : 'none';
+  // The graph view is always shown (lexicon = full graph, subgraph = named graph)
+  // The form view overlays when adding/editing
+  document.getElementById('graph-view').classList.toggle('active',
+    v === 'graph' || v === 'lexicon');
   document.getElementById('form-view').classList.toggle('active', v === 'form');
-  document.getElementById('graph-view').classList.toggle('active', v === 'graph');
 
   if (v === 'lexicon') {
-    if (activeWordId) {
-      renderDetail(activeWordId);
-    } else {
-      document.getElementById('detail-pane').style.display = 'none';
-      document.getElementById('empty-state').style.display = 'flex';
-    }
-  }
-
-  if (v === 'graph') {
+    // Full graph of all words
+    graphFocusNode = null;
+    focusedVisible = null;
+    renderGraph(null);
+  } else if (v === 'graph') {
     if (activeSubgraphId) {
       const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
       renderSubgraph(sg);
     } else {
-      // Full graph: show all words
       graphFocusNode = null;
       focusedVisible = null;
       renderGraph(null);
@@ -1320,16 +1313,12 @@ function showView(v, subgraphId) {
 }
 
 function bindNavTabs() {
+  // Lexicon tab = show full graph
   document.getElementById('tab-lexicon').addEventListener('click', () => showView('lexicon'));
-  // Change text on hover
   const menu = document.getElementById('etym-menu');
   const btn  = document.getElementById('etym-menu-btn');
-  menu.addEventListener('mouseenter', () => {
-    btn.textContent = 'Etymology';
-  });
-  menu.addEventListener('mouseleave', () => {
-    btn.textContent = activeSubgraphId ? 'Etymologies' : 'Etymologies';
-  });
+  menu.addEventListener('mouseenter', () => { btn.textContent = 'Etymology'; });
+  menu.addEventListener('mouseleave', () => { btn.textContent = 'Etymologies'; });
 }
 
 // ─── SUBGRAPH SYSTEM ──────────────────────
