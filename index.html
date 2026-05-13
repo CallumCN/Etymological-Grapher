@@ -2735,12 +2735,10 @@ function renderGraph(focusId, subgraph) {
   let selBox = null;
 
   function nodesInRect(svgX0, svgY0, svgX1, svgY1) {
-    // Convert selection box corners to world coords
     const wa = svgToWorld(Math.min(svgX0, svgX1), Math.min(svgY0, svgY1));
     const wb = svgToWorld(Math.max(svgX0, svgX1), Math.max(svgY0, svgY1));
     return nodes.filter(n => {
       const p = pos[n.id];
-      // Hit if circle overlaps the box: node centre is within box expanded by NODE_R
       return p.x >= wa.x - NODE_R && p.x <= wb.x + NODE_R
           && p.y >= wa.y - NODE_R && p.y <= wb.y + NODE_R;
     }).map(n => n.id);
@@ -2749,7 +2747,7 @@ function renderGraph(focusId, subgraph) {
   bgRect.on('mousedown', function(e) {
     if (e.button !== 0) return;
     const [sx, sy] = d3.pointer(e, svgEl);
-    selBox = { x0: sx, y0: sy };
+    selBox = { x0: sx, y0: sy, shift: e.shiftKey };
     selBoxEl.style('display', null)
       .attr('x', sx).attr('y', sy)
       .attr('width', 0).attr('height', 0);
@@ -2761,8 +2759,16 @@ function renderGraph(focusId, subgraph) {
     const rx = Math.min(selBox.x0, sx), ry = Math.min(selBox.y0, sy);
     const rw = Math.abs(sx - selBox.x0), rh = Math.abs(sy - selBox.y0);
     selBoxEl.attr('x', rx).attr('y', ry).attr('width', rw).attr('height', rh);
-    // Show pending highlight
-    const pending = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+
+    const inRect = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+    let pending;
+    if (selBox.shift) {
+      // Additive: show existing selection + new nodes, minus toggled-off nodes
+      pending = new Set([...selected, ...inRect]);
+      inRect.forEach(id => { if (selected.has(id)) pending.delete(id); });
+    } else {
+      pending = inRect;
+    }
     updateNodeAppearance(pending);
   });
 
@@ -2773,9 +2779,21 @@ function renderGraph(focusId, subgraph) {
     selBoxEl.style('display', 'none');
 
     if (rw < 4 && rh < 4) {
-      setSelected([]);
+      // Tiny drag = click on background — only clear selection if not shift
+      if (!selBox.shift) setSelected([]);
     } else {
-      setSelected(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+      const inRect = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
+      if (selBox.shift) {
+        // Toggle: add newly-swept nodes, remove already-selected ones that were swept
+        const next = new Set(selected);
+        inRect.forEach(id => {
+          if (next.has(id)) next.delete(id);
+          else next.add(id);
+        });
+        setSelected([...next]);
+      } else {
+        setSelected([...inRect]);
+      }
     }
     selBox = null;
   });
