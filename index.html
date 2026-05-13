@@ -946,11 +946,6 @@ nav {
       <p class="word-count" id="word-count">0 words</p>
     </div>
     <div class="word-list" id="word-list"></div>
-    <div id="detail-pane" class="word-detail" style="display:none;overflow-y:auto;border-top:1px solid var(--paper-dark);"></div>
-    <div id="empty-state" class="empty-state">
-      <span class="empty-state-glyph">∅</span>
-      <span class="empty-state-text">Select a word or add one</span>
-    </div>
     <button class="add-btn" onclick="showAddForm()">+ Add word</button>
     <div class="io-row">
       <button class="io-btn" onclick="exportLexicon()">Export</button>
@@ -960,6 +955,10 @@ nav {
   </aside>
 
   <div class="main-panel">
+
+    <div id="detail-view" style="display:none;flex:1;overflow-y:auto;">
+      <div id="detail-pane" class="word-detail"></div>
+    </div>
 
     <div class="form-view" id="form-view">
       <h2 class="form-title" id="form-title">Add word</h2>
@@ -1088,7 +1087,8 @@ function init() {
 
 // Persist current view whenever it changes
 function saveViewState() {
-  localStorage.setItem('last_view', currentView === 'graph' ? 'graph' : 'lexicon');
+  const savedView = (currentView === 'graph') ? 'graph' : 'lexicon';
+  localStorage.setItem('last_view', savedView);
   localStorage.setItem('open_subgraph_tabs', JSON.stringify(openSubgraphs.map(s => s.id)));
   localStorage.setItem('active_subgraph_id', activeSubgraphId || '');
 }
@@ -1210,14 +1210,14 @@ function bindSearch() {
 function selectWord(id) {
   activeWordId = id;
   renderWordList(document.getElementById('search').value);
+  showView('detail');
   renderDetail(id);
 }
 
 function renderDetail(id) {
   const w = DB.find(x => x.id === id);
   if (!w) return;
-  document.getElementById('detail-pane').style.display = 'block';
-  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('detail-pane').innerHTML = '';
 
   const ancestors   = (w.ancestors || []).map(aid => DB.find(x => x.id === aid)).filter(Boolean);
   const descendants = DB.filter(x => (x.ancestors || []).includes(id));
@@ -1268,9 +1268,8 @@ function deleteWord(id) {
     .filter(w => w.id !== id);
   scheduleSync();
   activeWordId = null;
-  document.getElementById('detail-pane').style.display = 'none';
-  document.getElementById('empty-state').style.display = 'flex';
   renderWordList();
+  showView('lexicon');
 }
 
 // ─── VIEWS ────────────────────────────────
@@ -1279,24 +1278,22 @@ function showView(v, subgraphId) {
   currentView = v;
   saveViewState();
 
-  // Tab highlights
-  // Lexicon tab is active when showing the full graph (no active subgraph)
+  // Tab highlights — Lexicon active when viewing full graph (no subgraph)
   document.getElementById('tab-lexicon').classList.toggle('active',
-    v === 'graph' && !activeSubgraphId);
+    (v === 'lexicon') && !activeSubgraphId);
   document.querySelectorAll('.subgraph-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.sgid === activeSubgraphId);
   });
-  const etymBtn = document.getElementById('etym-menu-btn');
-  etymBtn.classList.toggle('has-active', v === 'graph' && !!activeSubgraphId);
+  document.getElementById('etym-menu-btn').classList.toggle('has-active',
+    v === 'graph' && !!activeSubgraphId);
 
-  // The graph view is always shown (lexicon = full graph, subgraph = named graph)
-  // The form view overlays when adding/editing
-  document.getElementById('graph-view').classList.toggle('active',
-    v === 'graph' || v === 'lexicon');
+  // Panel visibility
+  const isGraph = v === 'lexicon' || v === 'graph';
+  document.getElementById('graph-view').classList.toggle('active', isGraph);
   document.getElementById('form-view').classList.toggle('active', v === 'form');
+  document.getElementById('detail-view').style.display  = v === 'detail' ? 'flex' : 'none';
 
   if (v === 'lexicon') {
-    // Full graph of all words
     graphFocusNode = null;
     focusedVisible = null;
     renderGraph(null);
@@ -1313,7 +1310,6 @@ function showView(v, subgraphId) {
 }
 
 function bindNavTabs() {
-  // Lexicon tab = show full graph
   document.getElementById('tab-lexicon').addEventListener('click', () => showView('lexicon'));
   const menu = document.getElementById('etym-menu');
   const btn  = document.getElementById('etym-menu-btn');
@@ -1339,6 +1335,7 @@ async function loadSubgraphs() {
   const openIds  = JSON.parse(localStorage.getItem('open_subgraph_tabs') || '[]');
   const activeId = localStorage.getItem('active_subgraph_id') || '';
   const lastView = localStorage.getItem('last_view') || 'lexicon';
+  const effectiveView = (lastView === 'graph') ? 'graph' : 'lexicon';
 
   openIds.forEach(id => {
     const sg = savedSubgraphs.find(s => s.id === id);
@@ -1349,10 +1346,10 @@ async function loadSubgraphs() {
   if (openSubgraphs.length) renderSubgraphTabs();
 
   // Restore the correct view — always call showView so tab highlights are correct
-  if (lastView === 'graph' && activeId && openSubgraphs.find(s => s.id === activeId)) {
+  if (effectiveView === 'graph' && activeId && openSubgraphs.find(s => s.id === activeId)) {
     showView('graph', activeId);
-  } else if (lastView === 'graph') {
-    showView('graph');
+  } else if (effectiveView === 'graph') {
+    showView('lexicon');
   } else {
     showView('lexicon');
   }
@@ -1559,7 +1556,7 @@ function editWord(id) {
 }
 
 function cancelForm() {
-  if (activeWordId) { showView('lexicon'); renderDetail(activeWordId); }
+  if (activeWordId) { showView('detail'); renderDetail(activeWordId); }
   else showView('lexicon');
 }
 
@@ -1635,7 +1632,7 @@ function saveWord() {
   }
   scheduleSync();
   renderWordList();
-  showView('lexicon');
+  showView('detail');
   renderDetail(activeWordId);
 }
 
@@ -1931,10 +1928,12 @@ function handleGraphDrop(event) {
     // Run cascades from the dropped node
     setTimeout(() => { snapDepths(wordId, 'up'); snapDepths(wordId, 'down'); }, 0);
   } else {
-    // Full graph mode: zoom to the node
-    graphFocusNode = wordId;
-    focusedVisible = new Set([wordId]);
-    showView('graph');
+    // Full graph / lexicon mode: zoom to the node in the current graph
+    if (currentView !== 'lexicon') showView('lexicon');
+    // After graph renders, pan to the node
+    setTimeout(() => {
+      if (graphState && graphState.panToNode) graphState.panToNode(wordId);
+    }, 50);
   }
 }
 
@@ -2873,6 +2872,14 @@ function renderGraph(focusId, subgraph) {
     keyHandler,
     wheelCleanup: () => svgEl.removeEventListener('wheel', onWheel),
     fitToView,
+    panToNode(id) {
+      if (!pos[id]) return;
+      const W2 = svgEl.clientWidth  || 800;
+      const H2 = svgEl.clientHeight || 500;
+      tx = W2 / 2 - scale * pos[id].x;
+      ty = H2 / 2 - scale * pos[id].y;
+      applyTransform();
+    },
   };
 }
 
