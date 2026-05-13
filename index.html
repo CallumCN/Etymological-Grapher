@@ -2747,7 +2747,7 @@ function renderGraph(focusId, subgraph) {
   bgRect.on('mousedown', function(e) {
     if (e.button !== 0) return;
     const [sx, sy] = d3.pointer(e, svgEl);
-    selBox = { x0: sx, y0: sy, shift: e.shiftKey };
+    selBox = { x0: sx, y0: sy, shift: e.shiftKey, baseSelection: new Set(selected) };
     selBoxEl.style('display', null)
       .attr('x', sx).attr('y', sy)
       .attr('width', 0).attr('height', 0);
@@ -2761,15 +2761,17 @@ function renderGraph(focusId, subgraph) {
     selBoxEl.attr('x', rx).attr('y', ry).attr('width', rw).attr('height', rh);
 
     const inRect = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
-    let pending;
     if (selBox.shift) {
-      // Additive: show existing selection + new nodes, minus toggled-off nodes
-      pending = new Set([...selected, ...inRect]);
-      inRect.forEach(id => { if (selected.has(id)) pending.delete(id); });
+      // Apply changes live: toggle each node relative to the state at drag start
+      const next = new Set(selBox.baseSelection);
+      inRect.forEach(id => {
+        if (selBox.baseSelection.has(id)) next.delete(id);
+        else next.add(id);
+      });
+      setSelected([...next]);
     } else {
-      pending = inRect;
+      updateNodeAppearance(inRect);
     }
-    updateNodeAppearance(pending);
   });
 
   svg.on('mouseup.selbox', function(e) {
@@ -2779,22 +2781,12 @@ function renderGraph(focusId, subgraph) {
     selBoxEl.style('display', 'none');
 
     if (rw < 4 && rh < 4) {
-      // Tiny drag = click on background — only clear selection if not shift
       if (!selBox.shift) setSelected([]);
-    } else {
-      const inRect = new Set(nodesInRect(selBox.x0, selBox.y0, sx, sy));
-      if (selBox.shift) {
-        // Toggle: add newly-swept nodes, remove already-selected ones that were swept
-        const next = new Set(selected);
-        inRect.forEach(id => {
-          if (next.has(id)) next.delete(id);
-          else next.add(id);
-        });
-        setSelected([...next]);
-      } else {
-        setSelected([...inRect]);
-      }
+    } else if (!selBox.shift) {
+      // Non-shift: commit the pending highlight as the final selection
+      setSelected(nodesInRect(selBox.x0, selBox.y0, sx, sy));
     }
+    // Shift: already applied live in mousemove — nothing to do
     selBox = null;
   });
 
