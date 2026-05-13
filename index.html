@@ -2109,8 +2109,20 @@ function renderGraph(focusId, subgraph) {
   const NODE_R   = 6;
   const LABEL_DX = NODE_R + 6;
   const ROW_H    = 80;
-  const CHAR_W   = 7.2;
-  const labelPx  = word => word.length * CHAR_W + 10;
+
+  // Measure actual rendered text width using a hidden SVG text element.
+  // This accounts for the proportional font (Cormorant Garamond) correctly.
+  const _labelCache = {};
+  const _measureEl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  _measureEl.style.cssText = 'font-family:"Cormorant Garamond",serif;font-size:15px;visibility:hidden;';
+  svgEl.appendChild(_measureEl);
+  const labelPx = word => {
+    if (_labelCache[word] !== undefined) return _labelCache[word];
+    _measureEl.textContent = word;
+    const w = _measureEl.getBBox().width;
+    _labelCache[word] = w;
+    return w;
+  };
 
   const { depth, xRank } = computeLayout(nodes);
 
