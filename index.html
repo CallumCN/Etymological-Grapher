@@ -2438,6 +2438,7 @@ function renderGraph(focusId, subgraph) {
           if (childYs.length  && myY >= Math.min(...childYs))  snapDepths(draggedId, 'down');
           if (parentYs.length && myY <= Math.max(...parentYs)) snapDepths(draggedId, 'up');
         });
+        resolveXCollisions([...selected]);
         redrawEdges();
         scheduleSubgraphSave();
       })
@@ -2619,6 +2620,7 @@ function renderGraph(focusId, subgraph) {
               snapDepths(gid, 'down');
             }
           }
+          resolveXCollisions([gid]);
           scheduleSubgraphSave();
           // Remove just this ghost node
           grp.remove();
@@ -2724,7 +2726,82 @@ function renderGraph(focusId, subgraph) {
     redrawEdges();
   }
 
-  // ── Selection ──
+  // ── Horizontal collision resolution ─────────────────────────────────────
+  // After a drop or cascade, ensures no two nodes on the same row have
+  // overlapping padding regions. PAD is the fixed gap on each side of a node.
+  const PAD = 12;
+
+  function nodeLeft(id)  { return (pos[id]?.x ?? 0) - NODE_R - PAD; }
+  function nodeRight(id) { return (pos[id]?.x ?? 0) + NODE_R + LABEL_DX + labelPx(DB.find(n=>n.id===id)?.word||'') + PAD; }
+  function nodeMid(id)   { return (nodeLeft(id) + nodeRight(id)) / 2; }
+  function nodeWidth(id) { return nodeRight(id) - nodeLeft(id); }
+
+  function resolveXCollisions(movedIds) {
+    // Group all visible nodes by row (y), rounded to nearest pixel
+    const byRow = {};
+    nodes.forEach(n => {
+      const row = Math.round(pos[n.id]?.y ?? 0);
+      (byRow[row] = byRow[row] || []).push(n.id);
+    });
+
+    Object.values(byRow).forEach(rowIds => {
+      if (rowIds.length < 2) return;
+
+      // Sort by padding midpoint — moved nodes mixed in order with stationary ones
+      rowIds.sort((a, b) => nodeMid(a) - nodeMid(b));
+
+      // Find groups of overlapping nodes using a sweep
+      // A group is a maximal set of consecutive nodes whose padding regions overlap
+      const groups = [];
+      let group = [rowIds[0]];
+      let groupRight = nodeRight(rowIds[0]);
+
+      for (let i = 1; i < rowIds.length; i++) {
+        const id = rowIds[i];
+        if (nodeLeft(id) < groupRight) {
+          // Overlap — extend group
+          group.push(id);
+          groupRight = Math.max(groupRight, nodeRight(id));
+        } else {
+          if (group.length > 1) groups.push([...group]);
+          group = [id];
+          groupRight = nodeRight(id);
+        }
+      }
+      if (group.length > 1) groups.push(group);
+
+      // Resolve each overlapping group
+      groups.forEach(grp => {
+        // Total width needed for all nodes side by side
+        const totalNeeded = grp.reduce((s, id) => s + nodeWidth(id), 0);
+
+        // Current span of the group (from leftmost left to rightmost right)
+        const spanLeft  = Math.min(...grp.map(nodeLeft));
+        const spanRight = Math.max(...grp.map(nodeRight));
+        const spanWidth = spanRight - spanLeft;
+
+        // Expand span symmetrically if needed
+        const overflow  = Math.max(0, totalNeeded - spanWidth);
+        const newLeft   = spanLeft  - overflow / 2;
+        const newRight  = spanRight + overflow / 2;
+
+        // Place nodes left-to-right, each PAD away from its neighbours
+        // Node x = newLeft + cumulative widths so far + nodeLeft-offset within its own width
+        let cursor = newLeft;
+        grp.forEach(id => {
+          const w = nodeWidth(id);
+          // Node circle is at cursor + NODE_R + PAD (left padding + circle radius)
+          const newX = cursor + NODE_R + PAD;
+          pos[id].x = newX;
+          gNodes.select(`g.node-grp[data-id="${id}"]`)
+            .attr('transform', `translate(${newX},${pos[id].y})`);
+          cursor += w;
+        });
+      });
+    });
+
+    redrawEdges();
+  }
   function setSelected(ids) {
     selected.clear();
     ids.forEach(id => selected.add(id));
