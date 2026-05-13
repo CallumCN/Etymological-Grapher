@@ -155,7 +155,7 @@ nav {
 .etym-dropdown {
   position: absolute;
   top: 100%;
-  left: 0;   /* align left edge with button left edge */
+  left: 0;
   right: auto;
   min-width: 200px;
   background: var(--paper);
@@ -164,8 +164,16 @@ nav {
   display: none;
   flex-direction: column;
   box-shadow: 0 4px 16px rgba(26,24,20,0.08);
-  padding-top: 6px;
-  margin-top: -6px;
+}
+
+/* Invisible bottom padding on the menu extends the hover area over the gap */
+.etym-menu::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  height: 8px;
 }
 
 .etym-menu:hover .etym-new-btn { display: flex; }
@@ -1113,10 +1121,12 @@ async function loadFromSupabase() {
     if (error) {
       if (error.code === 'PGRST116') {
         setSyncStatus('saved', 'Saved');
+        loadSubgraphs();
         return;
       }
       console.error('Supabase load error:', error.code, error.message, error.hint, error.details);
       setSyncStatus('error', error.message || 'load failed');
+      loadSubgraphs();
       return;
     }
 
@@ -1286,6 +1296,15 @@ function showView(v, subgraphId) {
   document.getElementById('lexicon-view').style.display = v === 'lexicon' ? 'flex' : 'none';
   document.getElementById('form-view').classList.toggle('active', v === 'form');
   document.getElementById('graph-view').classList.toggle('active', v === 'graph');
+
+  if (v === 'lexicon') {
+    if (activeWordId) {
+      renderDetail(activeWordId);
+    } else {
+      document.getElementById('detail-pane').style.display = 'none';
+      document.getElementById('empty-state').style.display = 'flex';
+    }
+  }
 
   if (v === 'graph') {
     if (activeSubgraphId) {
