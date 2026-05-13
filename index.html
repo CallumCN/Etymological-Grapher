@@ -122,16 +122,18 @@ nav {
   text-transform: uppercase;
   color: var(--amber);
   cursor: pointer;
-  padding: 0.25rem 0.5rem;
-  border: 1px solid var(--amber-light);
+  padding: 0.3rem 0.6rem;
+  border: none;
+  border-right: 1px solid var(--amber-light);
   background: var(--amber-pale);
   transition: background 0.15s;
   white-space: nowrap;
   position: absolute;
-  right: calc(100% + 0.5rem);
-  top: 50%;
-  transform: translateY(-50%);
+  right: 100%;
+  top: 0;
+  bottom: 0;
   display: none;
+  align-items: center;
 }
 
 .etym-new-btn:hover { background: var(--amber-light); }
@@ -152,7 +154,7 @@ nav {
   margin-top: -6px;
 }
 
-.etym-menu:hover .etym-new-btn,
+.etym-menu:hover .etym-new-btn { display: flex; }
 .etym-menu:hover .etym-dropdown { display: flex; }
 
 .etym-dropdown-empty {
@@ -195,23 +197,25 @@ nav {
   font-family: 'DM Mono', monospace;
   font-size: 0.6rem;
   color: var(--ink-light);
-  padding: 0.2rem 0.45rem;
-  border: 1px solid var(--paper-dark);
-  background: var(--paper);
+  padding: 0 0.6rem;
+  border: none;
+  border-right: 1px solid var(--paper-dark);
+  background: var(--paper-mid);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
   white-space: nowrap;
   flex-shrink: 0;
-  /* Sit to the left of the dropdown row, mirroring the New button position */
   position: absolute;
-  right: calc(100% + 0.5rem);
-  top: 50%;
-  transform: translateY(-50%);
+  right: 100%;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
 }
 
 .etym-dropdown-row:hover .etym-delete-btn { opacity: 1; }
-.etym-delete-btn:hover { color: var(--red); border-color: #d4a0a0; }
+.etym-delete-btn:hover { color: var(--red); background: #f5e0e0; }
 
 /* ── Subgraph tabs (left of Lexicon) ── */
 .subgraph-tabs {
@@ -286,12 +290,15 @@ nav {
   flex-shrink: 0;
 }
 
-.sync-status.saving .sync-dot { background: var(--amber); }
-.sync-status.saved .sync-dot { background: var(--green); }
-.sync-status.error .sync-dot { background: var(--red); }
-.sync-status.saving { color: var(--amber); }
-.sync-status.saved { color: var(--green); }
-.sync-status.error { color: var(--red); }
+.sync-status.saving .sync-dot,
+.graph-overlay-sync.saving .sync-dot { background: var(--amber); }
+.sync-status.saved .sync-dot,
+.graph-overlay-sync.saved .sync-dot { background: var(--green); }
+.sync-status.error .sync-dot,
+.graph-overlay-sync.error .sync-dot { background: var(--red); }
+.sync-status.saving, .graph-overlay-sync.saving { color: var(--amber); }
+.sync-status.saved,  .graph-overlay-sync.saved  { color: var(--green); }
+.sync-status.error,  .graph-overlay-sync.error  { color: var(--red); }
 
 .app-body {
   flex: 1;
@@ -583,17 +590,13 @@ nav {
 
 .graph-view.active { display: flex; }
 
-.graph-controls {
-  padding: 0.4rem 0.75rem;
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-shrink: 0;
-  background: var(--paper);
-}
+.graph-controls { display: none; } /* bar removed */
 
-/* sync indicator inside graph-controls */
-.graph-controls .sync-status {
+/* Sync indicator — top-left corner of graph */
+.graph-overlay-sync {
+  position: absolute;
+  top: 0.75rem;
+  left: 0.75rem;
   display: flex;
   align-items: center;
   gap: 0.35rem;
@@ -601,7 +604,16 @@ nav {
   font-size: 0.62rem;
   letter-spacing: 0.08em;
   color: var(--ink-light);
-  margin-right: auto;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* Re-center button — top-right corner of graph */
+.graph-overlay-recenter {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  z-index: 10;
 }
 
 .graph-btn-sm {
@@ -967,13 +979,11 @@ nav {
     </div>
 
     <div class="graph-view" id="graph-view">
-      <div class="graph-controls">
-        <div class="sync-status" id="sync-status">
-          <span class="sync-dot"></span>
-          <span id="sync-label">loading</span>
-        </div>
-        <button class="graph-btn-sm" onclick="reCenterGraph()">Re-center</button>
+      <div class="graph-overlay-sync sync-status" id="sync-status">
+        <span class="sync-dot"></span>
+        <span id="sync-label">loading</span>
       </div>
+      <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
       <div class="graph-tooltip" id="graph-tooltip">
         <div class="tt-word" id="tt-word"></div>
@@ -1139,7 +1149,8 @@ async function saveToSupabase() {
 }
 
 function setSyncStatus(state, label) {
-  document.getElementById('sync-status').className = 'sync-status ' + state;
+  const el = document.getElementById('sync-status');
+  el.className = 'graph-overlay-sync sync-status ' + state;
   document.getElementById('sync-label').textContent = label;
 }
 
