@@ -2729,7 +2729,7 @@ function renderGraph(focusId, subgraph) {
   // ── Horizontal collision resolution ─────────────────────────────────────
   // After a drop or cascade, ensures no two nodes on the same row have
   // overlapping padding regions. PAD is the fixed gap on each side of a node.
-  const PAD = 12;
+  const PAD = 3;
 
   function nodeLeft(id)  { return (pos[id]?.x ?? 0) - NODE_R - PAD; }
   function nodeRight(id) { return (pos[id]?.x ?? 0) + NODE_R + LABEL_DX + labelPx(DB.find(n=>n.id===id)?.word||'') + PAD; }
