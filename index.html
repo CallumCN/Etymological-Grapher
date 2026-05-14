@@ -2076,29 +2076,37 @@ function renderMorphemeEditor(word) {
   function applyRange(lo, hi) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
-      morphemeAssignments = morphemeAssignments.filter(m => !(m.end > start && m.start < end));
+      // Split assignments that contain the cleared range — keep the portions outside
+      const result = [];
+      morphemeAssignments.forEach(m => {
+        if (m.end <= start || m.start >= end) {
+          result.push(m); // no overlap
+        } else {
+          if (m.start < start) result.push({ ...m, end: start });   // left remnant
+          if (m.end   > end)   result.push({ ...m, start: end });   // right remnant
+        }
+      });
+      morphemeAssignments = result;
     } else {
       const idx = activeMorphemeBtn;
-      // Trim overlapping assignments from other etymons — keep non-overlapping portions
+      // Compute the final merged span for this etymon first
+      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+      const mergedStart = Math.min(start, ...same.map(m => m.start));
+      const mergedEnd   = Math.max(end,   ...same.map(m => m.end));
+
+      // Trim other etymons only against the merged span
       const trimmed = [];
       morphemeAssignments.forEach(m => {
-        if (m.ancestorIdx === idx) return; // handled below
-        if (m.end <= start || m.start >= end) {
-          trimmed.push(m); // no overlap
+        if (m.ancestorIdx === idx) return;
+        if (m.end <= mergedStart || m.start >= mergedEnd) {
+          trimmed.push(m);
         } else {
-          if (m.start < start) trimmed.push({ ...m, end: start });   // left remnant
-          if (m.end   > end)   trimmed.push({ ...m, start: end });   // right remnant
+          if (m.start < mergedStart) trimmed.push({ ...m, end: mergedStart });
+          if (m.end   > mergedEnd)   trimmed.push({ ...m, start: mergedEnd });
         }
       });
       morphemeAssignments = trimmed;
-      // Merge new range with all existing assignments for this etymon
-      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
-      morphemeAssignments = morphemeAssignments.filter(m => m.ancestorIdx !== idx);
-      morphemeAssignments.push({
-        ancestorIdx: idx,
-        start: Math.min(start, ...same.map(m => m.start)),
-        end:   Math.max(end,   ...same.map(m => m.end)),
-      });
+      morphemeAssignments.push({ ancestorIdx: idx, start: mergedStart, end: mergedEnd });
       reorderAncestorsByMorphemes(word.length);
     }
     renderMorphemeEditor(word);
