@@ -2341,11 +2341,16 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
       if (!cm) return;
 
       // Child x-range from morpheme data
-      const ci   = charInfoCache[child.id];
+      const ci    = charInfoCache[child.id];
       const slice = ci.slice(cm.start, cm.end);
       if (!slice.length) return;
-      const cx0 = cnl + slice[0].x;
-      const cx1 = cnl + slice[slice.length-1].x + slice[slice.length-1].w;
+      const cnw   = wordWidth(child.word);
+
+      // Snap to node edges when this morpheme covers the leftmost or rightmost character
+      const isLeftmost  = cm.start === 0;
+      const isRightmost = cm.end   === child.word.length;
+      const cx0 = isLeftmost  ? cnl        : cnl + slice[0].x;
+      const cx1 = isRightmost ? cnl + cnw  : cnl + slice[slice.length-1].x + slice[slice.length-1].w;
 
       // Parent x-range: full parent width (river flows from entire parent into the morpheme)
       const pnl  = nodeLeft(parent);
