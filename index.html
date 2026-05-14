@@ -2076,37 +2076,48 @@ function renderMorphemeEditor(word) {
   function applyRange(lo, hi) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
-      // Split assignments that contain the cleared range — keep the portions outside
+      // Cancel the deselection if the cleared range is surrounded on both sides
+      // by characters from the same etymon (i.e. it would split a span)
+      const surrounding = morphemeAssignments.find(m =>
+        m.start < start && m.end > end);
+      if (surrounding) return; // cancel — would split a contiguous region
+
+      // Otherwise split assignments, keeping portions outside the cleared range
       const result = [];
       morphemeAssignments.forEach(m => {
         if (m.end <= start || m.start >= end) {
-          result.push(m); // no overlap
+          result.push(m);
         } else {
-          if (m.start < start) result.push({ ...m, end: start });   // left remnant
-          if (m.end   > end)   result.push({ ...m, start: end });   // right remnant
+          if (m.start < start) result.push({ ...m, end: start });
+          if (m.end   > end)   result.push({ ...m, start: end });
         }
       });
       morphemeAssignments = result;
     } else {
       const idx = activeMorphemeBtn;
-      // Compute the final merged span for this etymon first
-      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
-      const mergedStart = Math.min(start, ...same.map(m => m.start));
-      const mergedEnd   = Math.max(end,   ...same.map(m => m.end));
 
-      // Trim other etymons only against the merged span
+      // Trim other etymons only against the newly selected range [start, end)
+      // not the full merged span — so existing selections aren't disturbed
       const trimmed = [];
       morphemeAssignments.forEach(m => {
-        if (m.ancestorIdx === idx) return;
-        if (m.end <= mergedStart || m.start >= mergedEnd) {
+        if (m.ancestorIdx === idx) return; // handled below
+        if (m.end <= start || m.start >= end) {
           trimmed.push(m);
         } else {
-          if (m.start < mergedStart) trimmed.push({ ...m, end: mergedStart });
-          if (m.end   > mergedEnd)   trimmed.push({ ...m, start: mergedEnd });
+          if (m.start < start) trimmed.push({ ...m, end: start });
+          if (m.end   > end)   trimmed.push({ ...m, start: end });
         }
       });
       morphemeAssignments = trimmed;
-      morphemeAssignments.push({ ancestorIdx: idx, start: mergedStart, end: mergedEnd });
+
+      // Merge new range with all existing assignments for this etymon
+      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+      morphemeAssignments = morphemeAssignments.filter(m => m.ancestorIdx !== idx);
+      morphemeAssignments.push({
+        ancestorIdx: idx,
+        start: Math.min(start, ...same.map(m => m.start)),
+        end:   Math.max(end,   ...same.map(m => m.end)),
+      });
       reorderAncestorsByMorphemes(word.length);
     }
     renderMorphemeEditor(word);
