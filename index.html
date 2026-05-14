@@ -2076,20 +2076,28 @@ function renderMorphemeEditor(word) {
   function applyRange(lo, hi) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
-      // Remove any assignment covering this range
       morphemeAssignments = morphemeAssignments.filter(m => !(m.end > start && m.start < end));
     } else {
       const idx = activeMorphemeBtn;
-      // Remove overlapping assignments from OTHER etymons only
-      morphemeAssignments = morphemeAssignments.filter(m =>
-        m.ancestorIdx === idx || !(m.end > start && m.start < end));
-      // Merge new range with ALL existing assignments for this etymon into one span
-      const sameEtymon = morphemeAssignments.filter(m => m.ancestorIdx === idx);
-      sameEtymon.forEach(m => { morphemeAssignments = morphemeAssignments.filter(x => x !== m); });
+      // Trim overlapping assignments from other etymons — keep non-overlapping portions
+      const trimmed = [];
+      morphemeAssignments.forEach(m => {
+        if (m.ancestorIdx === idx) return; // handled below
+        if (m.end <= start || m.start >= end) {
+          trimmed.push(m); // no overlap
+        } else {
+          if (m.start < start) trimmed.push({ ...m, end: start });   // left remnant
+          if (m.end   > end)   trimmed.push({ ...m, start: end });   // right remnant
+        }
+      });
+      morphemeAssignments = trimmed;
+      // Merge new range with all existing assignments for this etymon
+      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+      morphemeAssignments = morphemeAssignments.filter(m => m.ancestorIdx !== idx);
       morphemeAssignments.push({
         ancestorIdx: idx,
-        start: Math.min(start, ...sameEtymon.map(m => m.start)),
-        end:   Math.max(end,   ...sameEtymon.map(m => m.end)),
+        start: Math.min(start, ...same.map(m => m.start)),
+        end:   Math.max(end,   ...same.map(m => m.end)),
       });
       reorderAncestorsByMorphemes(word.length);
     }
