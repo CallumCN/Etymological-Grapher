@@ -119,9 +119,7 @@ nav {
   transition: color 0.15s, border-color 0.15s;
   user-select: none;
   white-space: nowrap;
-  /* Fixed width so text change between Etymology/Etymologies doesn't shift layout */
   display: inline-block;
-  width: 8.5rem;
   text-align: left;
 }
 
@@ -353,7 +351,7 @@ nav {
 
 .search-input {
   width: 100%;
-  padding: 0.5rem 0.75rem 0.5rem 1.75rem;
+  padding: 0.5rem 1.75rem 0.5rem 1.75rem;
   font-family: 'DM Mono', monospace;
   font-size: 0.75rem;
   background: var(--paper-mid);
@@ -363,6 +361,21 @@ nav {
   letter-spacing: 0.03em;
   transition: border-color 0.15s;
 }
+
+.search-clear {
+  position: absolute;
+  right: 0.6rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.65rem;
+  color: var(--ink-light);
+  cursor: pointer;
+  display: none;
+  line-height: 1;
+}
+.search-clear:hover { color: var(--ink); }
+.search-wrap:focus-within .search-clear,
+.search-clear.visible { display: block; }
 
 .search-input:focus { border-color: var(--amber); }
 .search-input::placeholder { color: var(--ink-light); }
@@ -633,14 +646,11 @@ nav {
   z-index: 10;
 }
 
-/* Braided view toggle — top-right, left of Re-center */
-.graph-overlay-braided {
-  position: absolute;
-  top: 0.75rem;
-  right: 6.5rem;
+/* Fluvial / Dot-wire view toggle buttons */
+.graph-overlay-dotswitch {
   z-index: 10;
 }
-.graph-overlay-braided.active { background: var(--amber); color: var(--paper); border-color: var(--amber); }
+.graph-overlay-dotswitch.active { background: var(--amber); color: var(--paper); border-color: var(--amber); }
 
 /* Morpheme character cells */
 .morph-char {
@@ -986,6 +996,7 @@ nav {
       <div class="search-wrap">
         <span class="search-icon">⌕</span>
         <input type="text" class="search-input" id="search" placeholder="search words...">
+        <span class="search-clear" id="search-clear" onclick="clearSearch()" title="Clear search">✕</span>
       </div>
       <p class="word-count" id="word-count">0 words</p>
     </div>
@@ -1030,11 +1041,9 @@ nav {
       </div>
 
       <div class="form-group" id="morpheme-editor-group" style="display:none">
-        <label class="form-label">Morpheme origins
-          <span style="font-weight:300;text-transform:none;font-family:'Cormorant Garamond',serif;font-size:0.85rem;letter-spacing:0;">— click an ancestor, then click characters</span>
-        </label>
-        <div id="morpheme-char-row" style="display:flex;flex-wrap:wrap;gap:2px;margin-bottom:0.6rem;"></div>
-        <div id="morpheme-ancestor-btns" style="display:flex;flex-wrap:wrap;gap:0.4rem;"></div>
+        <label class="form-label">click an ancestor, then drag through characters</label>
+        <div id="morpheme-ancestor-btns" style="display:flex;flex-wrap:wrap;gap:0.4rem;margin-bottom:0.5rem;"></div>
+        <div id="morpheme-char-row" style="display:flex;flex-wrap:wrap;gap:2px;"></div>
       </div>
 
       <div class="form-actions">
@@ -1049,7 +1058,8 @@ nav {
         <span id="sync-label">loading</span>
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
-      <button class="graph-btn-sm graph-overlay-braided" id="btn-braided" onclick="toggleBraidedView()" style="position:absolute;top:0.75rem;right:6.5rem;">Braided</button>
+      <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-dotswitch" onclick="setViewMode('dot')" style="position:absolute;top:0.75rem;right:13rem;">Dot & wire</button>
+      <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-fluvial" onclick="setViewMode('fluvial')" style="position:absolute;top:0.75rem;right:6.5rem;">Fluvial</button>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
       <div class="graph-tooltip" id="graph-tooltip">
         <div class="tt-word" id="tt-word"></div>
@@ -1138,6 +1148,7 @@ function init() {
   currentView = 'lexicon';
   document.getElementById('tab-lexicon').classList.add('active');
   document.getElementById('graph-view').classList.remove('active');
+  document.getElementById('btn-dotswitch')?.classList.add('active');
 }
 
 // Persist current view whenever it changes
@@ -1230,15 +1241,20 @@ function scheduleSync() {
 }
 
 // ─── WORD LIST ────────────────────────────
-function renderWordList(filter = '') {
+function getCurrentSearch() {
+  return document.getElementById('search')?.value || '';
+}
+
+function renderWordList(filter) {
+  if (filter === undefined) filter = getCurrentSearch();
   const list  = document.getElementById('word-list');
   const count = document.getElementById('word-count');
   const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
   const filtered = DB
     .filter(w => !terms.length || terms.every(t =>
       w.word.toLowerCase().includes(t) ||
-      w.meaning.toLowerCase().includes(t) ||
-      w.transcription.toLowerCase().includes(t)
+      (w.meaning||'').toLowerCase().includes(t) ||
+      (w.transcription||'').toLowerCase().includes(t)
     ))
     .sort((a, b) => a.word.localeCompare(b.word));
   count.textContent = DB.length + ' word' + (DB.length !== 1 ? 's' : '');
@@ -1258,7 +1274,20 @@ function renderWordList(filter = '') {
 }
 
 function bindSearch() {
-  document.getElementById('search').addEventListener('input', e => renderWordList(e.target.value));
+  const inp = document.getElementById('search');
+  const clr = document.getElementById('search-clear');
+  inp.addEventListener('input', e => {
+    renderWordList(e.target.value);
+    clr.classList.toggle('visible', e.target.value.length > 0);
+  });
+}
+
+function clearSearch() {
+  const inp = document.getElementById('search');
+  inp.value = '';
+  document.getElementById('search-clear').classList.remove('visible');
+  renderWordList('');
+  inp.focus();
 }
 
 // ─── WORD DETAIL ──────────────────────────
@@ -1494,19 +1523,43 @@ function closeSubgraphTab(id) {
 function renderSubgraphTabs() {
   const container = document.getElementById('subgraph-tabs');
   container.innerHTML = '';
-  openSubgraphs.forEach(sg => {
+  openSubgraphs.forEach((sg, sgIdx) => {
     const tab = document.createElement('div');
     tab.className = 'subgraph-tab' + (sg.id === activeSubgraphId ? ' active' : '');
     tab.dataset.sgid = sg.id;
+    tab.draggable = true;
+
+    // Drag reorder
+    tab.addEventListener('dragstart', e => {
+      e.dataTransfer.setData('sgTabId', sg.id);
+      e.dataTransfer.effectAllowed = 'move';
+      tab.style.opacity = '0.4';
+    });
+    tab.addEventListener('dragend', () => { tab.style.opacity = ''; });
+    tab.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    });
+    tab.addEventListener('drop', e => {
+      e.preventDefault();
+      const fromId = e.dataTransfer.getData('sgTabId');
+      if (fromId === sg.id) return;
+      const fromIdx = openSubgraphs.findIndex(s => s.id === fromId);
+      const toIdx   = openSubgraphs.findIndex(s => s.id === sg.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = openSubgraphs.splice(fromIdx, 1);
+      openSubgraphs.splice(toIdx, 0, moved);
+      saveViewState();
+      renderSubgraphTabs();
+    });
 
     const title = document.createElement('span');
     title.className = 'subgraph-tab-title';
     title.textContent = sg.title;
     title.title = sg.title;
 
-    // Click title to edit inline — only when this tab is active
     title.addEventListener('click', e => {
-      if (sg.id !== activeSubgraphId) return; // must be viewing this subgraph
+      if (sg.id !== activeSubgraphId) return;
       e.stopPropagation();
       title.contentEditable = 'true';
       title.focus();
@@ -1519,10 +1572,7 @@ function renderSubgraphTabs() {
       title.contentEditable = 'false';
       const newTitle = title.textContent.trim() || sg.title;
       title.textContent = newTitle;
-      if (newTitle !== sg.title) {
-        sg.title = newTitle;
-        saveSubgraphToCloud(sg);
-      }
+      if (newTitle !== sg.title) { sg.title = newTitle; saveSubgraphToCloud(sg); }
     });
     title.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); title.blur(); }
@@ -1591,7 +1641,7 @@ function showAddForm() {
   document.getElementById('form-title').textContent = 'Add word';
   document.getElementById('form-subtitle').textContent = 'New entry to the lexicon';
   ['f-word','f-transcription','f-meaning'].forEach(id => document.getElementById(id).value = '');
-  ancestorSlotValues = [null];
+  ancestorSlotValues = [];
   morphemeAssignments = [];
   activeMorphemeBtn = null;
   buildAncestorSlots();
@@ -1771,8 +1821,6 @@ function ancestorColor(idx) { return ANCESTOR_COLORS[idx % ANCESTOR_COLORS.lengt
 function buildAncestorSlots() {
   const container = document.getElementById('ancestor-slots');
   container.innerHTML = '';
-  // Ensure at least one slot
-  if (ancestorSlotValues.length === 0) ancestorSlotValues.push(null);
   ancestorSlotValues.forEach((_, i) => renderAncestorSlot(i));
 }
 
@@ -1932,46 +1980,7 @@ function renderMorphemeEditor(word) {
   const ancBtns  = document.getElementById('morpheme-ancestor-btns');
   if (!charRow || !ancBtns) return;
 
-  // Character cells
-  charRow.innerHTML = '';
-  [...word].forEach((ch, ci) => {
-    const cell = document.createElement('span');
-    cell.className = 'morph-char';
-    cell.textContent = ch;
-    cell.dataset.ci = ci;
-    const assignment = morphemeAssignments.find(m => ci >= m.start && ci < m.end);
-    if (assignment !== undefined) {
-      const color = ancestorColor(assignment.ancestorIdx);
-      cell.style.background = color;
-      cell.classList.add('assigned');
-    }
-    cell.addEventListener('click', () => {
-      if (activeMorphemeBtn === null) return;
-      if (activeMorphemeBtn === 'clear') {
-        morphemeAssignments = morphemeAssignments.filter(m => !(ci >= m.start && ci < m.end));
-      } else {
-        const idx = activeMorphemeBtn;
-        // Remove any existing assignment for this character
-        morphemeAssignments = morphemeAssignments.filter(m => !(ci >= m.start && ci < m.end));
-        // Extend or create an assignment for this ancestor
-        // Try to merge with adjacent assignments of the same ancestor
-        const existing = morphemeAssignments.find(m => m.ancestorIdx === idx);
-        if (existing) {
-          // Extend to include this character
-          existing.start = Math.min(existing.start, ci);
-          existing.end   = Math.max(existing.end, ci + 1);
-        } else {
-          morphemeAssignments.push({ ancestorIdx: idx, start: ci, end: ci + 1 });
-        }
-        // Re-check and reorder ancestors by leftmost start if needed
-        reorderAncestorsByMorphemes(word.length);
-      }
-      renderMorphemeEditor(word);
-    });
-    charRow.appendChild(cell);
-  });
-
-  // Ancestor buttons
+  // ── Ancestor buttons (above) ──
   ancBtns.innerHTML = '';
   ancestorSlotValues.forEach((id, i) => {
     if (!id) return;
@@ -1981,7 +1990,7 @@ function renderMorphemeEditor(word) {
     btn.className = 'morph-anc-btn' + (activeMorphemeBtn === i ? ' active' : '');
     btn.textContent = w.word;
     btn.style.color = ancestorColor(i);
-    btn.style.borderColor = activeMorphemeBtn === i ? ancestorColor(i) : '';
+    if (activeMorphemeBtn === i) btn.style.borderColor = ancestorColor(i);
     btn.addEventListener('click', () => {
       activeMorphemeBtn = (activeMorphemeBtn === i) ? null : i;
       renderMorphemeEditor(word);
@@ -1989,15 +1998,121 @@ function renderMorphemeEditor(word) {
     ancBtns.appendChild(btn);
   });
 
-  // Clear button
+  // Clear / X button
   const clearBtn = document.createElement('button');
   clearBtn.className = 'morph-anc-btn clear-btn' + (activeMorphemeBtn === 'clear' ? ' active' : '');
-  clearBtn.textContent = 'Clear';
+  clearBtn.textContent = '✕';
+  clearBtn.title = 'Clear';
   clearBtn.addEventListener('click', () => {
     activeMorphemeBtn = (activeMorphemeBtn === 'clear') ? null : 'clear';
     renderMorphemeEditor(word);
   });
   ancBtns.appendChild(clearBtn);
+
+  // ── Character cells with drag-to-highlight ──
+  charRow.innerHTML = '';
+  const chars = [...word];
+
+  // Build assignment lookup
+  function getAssignment(ci) {
+    return morphemeAssignments.find(m => ci >= m.start && ci < m.end);
+  }
+
+  chars.forEach((ch, ci) => {
+    const cell = document.createElement('span');
+    cell.className = 'morph-char';
+    cell.textContent = ch;
+    cell.dataset.ci = ci;
+    const assignment = getAssignment(ci);
+    if (assignment !== undefined) {
+      cell.style.background = ancestorColor(assignment.ancestorIdx);
+      cell.classList.add('assigned');
+    }
+    charRow.appendChild(cell);
+  });
+
+  // Drag-to-paint: track mousedown + mousemove by X position
+  let dragActive = false;
+  let dragStartIdx = null;
+
+  function cellAtX(clientX) {
+    // Find character cell whose bounding rect contains this X
+    const cells = charRow.querySelectorAll('.morph-char');
+    for (const cell of cells) {
+      const r = cell.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right) return parseInt(cell.dataset.ci);
+    }
+    // Past the right edge — return last
+    if (clientX > charRow.getBoundingClientRect().right) return chars.length - 1;
+    return null;
+  }
+
+  function applyDragRange(startIdx, endIdx) {
+    if (startIdx === null || endIdx === null) return;
+    const lo = Math.min(startIdx, endIdx);
+    const hi = Math.max(startIdx, endIdx) + 1;
+    if (activeMorphemeBtn === 'clear') {
+      morphemeAssignments = morphemeAssignments.filter(m => !(m.end > lo && m.start < hi));
+    } else if (activeMorphemeBtn !== null) {
+      const idx = activeMorphemeBtn;
+      // Remove overlapping assignments for this and any ancestor in range
+      morphemeAssignments = morphemeAssignments.filter(m => !(m.end > lo && m.start < hi));
+      // Merge with adjacent same-ancestor assignments
+      const adjacent = morphemeAssignments.filter(m => m.ancestorIdx === idx && (m.end >= lo && m.start <= hi));
+      adjacent.forEach(m => { morphemeAssignments = morphemeAssignments.filter(x => x !== m); });
+      const newStart = Math.min(lo, ...adjacent.map(m => m.start));
+      const newEnd   = Math.max(hi, ...adjacent.map(m => m.end));
+      morphemeAssignments.push({ ancestorIdx: idx, start: newStart, end: newEnd });
+      reorderAncestorsByMorphemes(word.length);
+    }
+  }
+
+  charRow.addEventListener('mousedown', e => {
+    if (activeMorphemeBtn === null) return;
+    e.preventDefault();
+    dragActive = true;
+    dragStartIdx = cellAtX(e.clientX);
+  });
+
+  document.addEventListener('mousemove', function onMove(e) {
+    if (!dragActive) return;
+    // Live preview — redraw with temporary assignment
+    const currentIdx = cellAtX(e.clientX);
+    const lo = Math.min(dragStartIdx, currentIdx ?? dragStartIdx);
+    const hi = Math.max(dragStartIdx, currentIdx ?? dragStartIdx);
+    const cells = charRow.querySelectorAll('.morph-char');
+    cells.forEach(cell => {
+      const ci = parseInt(cell.dataset.ci);
+      const inDrag = ci >= lo && ci <= hi;
+      if (inDrag) {
+        if (activeMorphemeBtn === 'clear') {
+          cell.style.background = '';
+          cell.classList.remove('assigned');
+        } else {
+          cell.style.background = ancestorColor(activeMorphemeBtn);
+          cell.classList.add('assigned');
+        }
+      } else {
+        // Restore from morphemeAssignments
+        const a = getAssignment(ci);
+        if (a) { cell.style.background = ancestorColor(a.ancestorIdx); cell.classList.add('assigned'); }
+        else   { cell.style.background = ''; cell.classList.remove('assigned'); }
+      }
+    });
+    // Store cleanup reference
+    charRow._onMove = onMove;
+  });
+
+  document.addEventListener('mouseup', function onUp(e) {
+    if (!dragActive) return;
+    dragActive = false;
+    const endIdx = cellAtX(e.clientX) ?? dragStartIdx;
+    applyDragRange(dragStartIdx, endIdx);
+    dragStartIdx = null;
+    document.removeEventListener('mousemove', charRow._onMove);
+    document.removeEventListener('mouseup', onUp);
+    renderMorphemeEditor(word);
+  }, { once: true });
 }
 
 function reorderAncestorsByMorphemes(wordLen) {
@@ -2024,13 +2139,13 @@ function reorderAncestorsByMorphemes(wordLen) {
   buildAncestorSlots();
 }
 
-// ─── BRAIDED VIEW ────────────────────────────────────────────────────────
-let braidedMode = false;
+// ─── FLUVIAL VIEW ────────────────────────────────────────────────────────
+let graphViewMode = 'dot'; // 'dot' or 'fluvial'
 
-function toggleBraidedView() {
-  braidedMode = !braidedMode;
-  document.getElementById('btn-braided').classList.toggle('active', braidedMode);
-  // Re-render current graph view
+function setViewMode(mode) {
+  graphViewMode = mode;
+  document.getElementById('btn-dotswitch').classList.toggle('active', mode === 'dot');
+  document.getElementById('btn-fluvial').classList.toggle('active', mode === 'fluvial');
   if (currentView === 'lexicon' || currentView === 'graph') {
     if (activeSubgraphId) {
       const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
@@ -2041,54 +2156,121 @@ function toggleBraidedView() {
   }
 }
 
-function renderBraidedGraph(nodes, pos, svgEl, W, H, tx, ty, scale) {
+// Keep backward compat alias
+function toggleBraidedView() { setViewMode(graphViewMode === 'fluvial' ? 'dot' : 'fluvial'); }
+
+function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+
   const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-  g.setAttribute('transform', `translate(${tx},${ty}) scale(${scale})`);
+  g.setAttribute('transform', `translate(${bTx},${bTy}) scale(${bScale})`);
 
-  const NODE_W_PADDING = 12; // extra px on each side of node rectangle
-  const NODE_H = 32;         // height of each node rectangle
-  const FONT_SIZE = 15;
+  const NODE_W_PAD = 12;
+  const NODE_H     = 32;
+  const FONT_SIZE  = 15;
 
-  // Measure word widths
   const measureEl = document.createElementNS('http://www.w3.org/2000/svg','text');
-  measureEl.style.cssText = 'font-family:"Cormorant Garamond",serif;font-size:'+FONT_SIZE+'px;';
-  measureEl.style.visibility = 'hidden';
+  measureEl.style.cssText = `font-family:"Cormorant Garamond",serif;font-size:${FONT_SIZE}px;visibility:hidden;`;
   svgEl.appendChild(measureEl);
 
+  const widthCache = {};
   function wordWidth(word) {
+    if (widthCache[word] !== undefined) return widthCache[word];
     measureEl.textContent = word;
-    return measureEl.getBBox().width + NODE_W_PADDING * 2;
+    widthCache[word] = measureEl.getBBox().width + NODE_W_PAD * 2;
+    return widthCache[word];
   }
 
-  function charWidths(word) {
-    // Returns array of {x, w} for each character, in world coords relative to node left
+  function charInfos(word) {
+    // [{ch, x (relative to node left), w}]
     const chars = [...word];
-    const widths = chars.map(ch => {
+    let cursor = NODE_W_PAD;
+    return chars.map(ch => {
       measureEl.textContent = ch;
-      return measureEl.getBBox().width;
-    });
-    const total = widths.reduce((s, w) => s + w, 0);
-    const nodeW = total + NODE_W_PADDING * 2;
-    let cursor = NODE_W_PADDING;
-    return chars.map((ch, i) => {
-      const w = widths[i];
-      const result = { ch, x: cursor, w };
+      const w = measureEl.getBBox().width;
+      const info = { ch, x: cursor, w };
       cursor += w;
-      return result;
+      return info;
     });
   }
 
-  // Draw each node as a rectangle with its word
+  // Node geometry helpers
+  function nodeLeft(n)   { const p = pos[n.id]; return p.x - wordWidth(n.word) / 2; }
+  function nodeRight(n)  { return nodeLeft(n) + wordWidth(n.word); }
+  function nodeTop(n)    { return pos[n.id].y - NODE_H / 2; }
+  function nodeBottom(n) { return pos[n.id].y + NODE_H / 2; }
+
+  // ── Pass 1: draw flows (below nodes) ──
+  nodes.forEach(child => {
+    const ancestors = (child.ancestors || []).filter(aid => byId[aid]);
+    if (!ancestors.length) return;
+    const cp  = pos[child.id];
+    if (!cp) return;
+    const cnl = nodeLeft(child);
+    const cnw = wordWidth(child.word);
+    const cTop = nodeTop(child);
+
+    ancestors.forEach((ancId, ancIdx) => {
+      const parent = byId[ancId];
+      if (!parent) return;
+      const pp   = pos[parent.id];
+      if (!pp) return;
+      const pnl  = nodeLeft(parent);
+      const pnw  = wordWidth(parent.word);
+      const pBot = nodeBottom(parent);
+
+      const color = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
+
+      // Parent x-range: use morpheme data if available, else full parent width
+      // (parent's contribution in the child's space is cm; parent itself is always full width at bottom)
+      let px0 = pnl, px1 = pnl + pnw;
+
+      // Child x-range: morpheme data if available, else proportional slice
+      let cx0, cx1;
+      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
+      if (cm) {
+        const ci = charInfos(child.word);
+        const slice = ci.slice(cm.start, cm.end);
+        if (slice.length) {
+          cx0 = cnl + slice[0].x;
+          cx1 = cnl + slice[slice.length-1].x + slice[slice.length-1].w;
+        }
+      }
+      if (cx0 === undefined) {
+        // Proportional fallback
+        const sliceW = cnw / Math.max(ancestors.length, 1);
+        cx0 = cnl + ancIdx * sliceW;
+        cx1 = cx0 + sliceW;
+      }
+
+      const py = pBot;
+      const cy = cTop;
+      const my = (py + cy) / 2;
+
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',
+        `M ${px0} ${py} C ${px0} ${my}, ${cx0} ${my}, ${cx0} ${cy}` +
+        ` L ${cx1} ${cy} C ${cx1} ${my}, ${px1} ${my}, ${px1} ${py} Z`
+      );
+      path.setAttribute('fill', color);
+      path.setAttribute('opacity', '0.4');
+      path.setAttribute('stroke', 'none');
+      g.appendChild(path);
+    });
+  });
+
+  // ── Pass 2: draw node rectangles and text (above flows) ──
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
-    const nw = wordWidth(n.word);
-    const nx = p.x - nw / 2; // center horizontally on pos.x
-    const ny = p.y - NODE_H / 2;
+    const nw  = wordWidth(n.word);
+    const nl  = nodeLeft(n);
+    const nt  = nodeTop(n);
 
-    // Background rectangle
+    // Background
     const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    rect.setAttribute('x', nx); rect.setAttribute('y', ny);
+    rect.setAttribute('x', nl); rect.setAttribute('y', nt);
     rect.setAttribute('width', nw); rect.setAttribute('height', NODE_H);
     rect.setAttribute('rx', 3);
     rect.setAttribute('fill', '#f7f4ee');
@@ -2096,79 +2278,35 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, tx, ty, scale) {
     rect.setAttribute('stroke-width', '1');
     g.appendChild(rect);
 
-    // Color morpheme regions
+    // Morpheme colour regions
     if (n.morphemes?.length) {
-      const cw = charWidths(n.word);
+      const ci = charInfos(n.word);
       n.morphemes.forEach(m => {
         const ancIdx = (n.ancestors||[]).indexOf(m.ancestorId);
         if (ancIdx < 0) return;
-        const color = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
-        const chars = cw.slice(m.start, m.end);
-        if (!chars.length) return;
-        const rx = nx + chars[0].x;
-        const rw = chars.reduce((s, c) => s + c.w, 0);
-        const mrect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        mrect.setAttribute('x', rx); mrect.setAttribute('y', ny);
-        mrect.setAttribute('width', rw); mrect.setAttribute('height', NODE_H);
-        mrect.setAttribute('fill', color); mrect.setAttribute('opacity', '0.25');
-        g.appendChild(mrect);
+        const color  = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
+        const slice  = ci.slice(m.start, m.end);
+        if (!slice.length) return;
+        const rx = nl + slice[0].x;
+        const rw = slice.reduce((s, c) => s + c.w, 0);
+        const mr = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        mr.setAttribute('x', rx); mr.setAttribute('y', nt);
+        mr.setAttribute('width', rw); mr.setAttribute('height', NODE_H);
+        mr.setAttribute('fill', color); mr.setAttribute('opacity', '0.25');
+        g.appendChild(mr);
       });
     }
 
-    // Word text
+    // Text
     const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
-    txt.setAttribute('x', p.x); txt.setAttribute('y', p.y + FONT_SIZE * 0.35);
+    txt.setAttribute('x', p.x);
+    txt.setAttribute('y', p.y + FONT_SIZE * 0.35);
     txt.setAttribute('text-anchor', 'middle');
     txt.setAttribute('font-family', '"Cormorant Garamond",serif');
     txt.setAttribute('font-size', FONT_SIZE);
     txt.setAttribute('fill', '#1a1814');
     txt.textContent = n.word;
     g.appendChild(txt);
-
-    // Draw braided flows to children
-    nodes.forEach(child => {
-      if (!(child.ancestors||[]).includes(n.id)) return;
-      const cp = pos[child.id];
-      if (!cp) return;
-      const ancIdx = child.ancestors.indexOf(n.id);
-      const color = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
-      const cnw = wordWidth(child.word);
-      const cnx = cp.x - cnw / 2;
-
-      // Determine x range at bottom of parent
-      const m = (n.morphemes||[]).find(mx => mx.ancestorId === child.id);
-      // Determine x range at top of child corresponding to this parent
-      const cm = (child.morphemes||[]).find(mx => mx.ancestorId === n.id);
-
-      // Parent bottom centre (fallback: full width)
-      let px0 = nx, px1 = nx + nw;
-      // Child top centre (fallback: proportional)
-      let cx0 = cnx + ancIdx * (cnw / Math.max(child.ancestors.length, 1));
-      let cx1 = cx0 + cnw / Math.max(child.ancestors.length, 1);
-
-      if (cm) {
-        const cw2 = charWidths(child.word);
-        const chars2 = cw2.slice(cm.start, cm.end);
-        if (chars2.length) {
-          cx0 = cnx + chars2[0].x;
-          cx1 = cnx + chars2[0].x + chars2.reduce((s,c)=>s+c.w,0);
-        }
-      }
-
-      // Draw filled bezier path from parent bottom to child top
-      const py = ny + NODE_H;
-      const cy = cp.y - NODE_H / 2;
-      const my = (py + cy) / 2;
-
-      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      const d = `M ${px0} ${py} C ${px0} ${my}, ${cx0} ${my}, ${cx0} ${cy}
-                 L ${cx1} ${cy} C ${cx1} ${my}, ${px1} ${my}, ${px1} ${py} Z`;
-      path.setAttribute('d', d);
-      path.setAttribute('fill', color);
-      path.setAttribute('opacity', '0.35');
-      path.setAttribute('stroke', 'none');
-      g.appendChild(path);
-    });
   });
 
   svgEl.removeChild(measureEl);
@@ -2506,8 +2644,8 @@ function renderGraph(focusId, subgraph) {
     sgSaveTimeout = setTimeout(() => saveSubgraphToCloud(subgraph), 1000);
   }
 
-  // If braided mode, use the braided renderer instead of the D3 graph
-  if (braidedMode) {
+  // If fluvial mode, use the fluvial renderer instead of the D3 graph
+  if (graphViewMode === 'fluvial') {
     svgEl.removeChild(_measureEl);
     svg.attr('width', W).attr('height', H);
     tx = 0; ty = 0; scale = 1;
@@ -2838,6 +2976,10 @@ function renderGraph(focusId, subgraph) {
         tooltip.classList.remove('visible');
         delete svgEl.dataset.hoveredNode;
         if (ghost && !ghost.pinned) clearGhost();
+      })
+      .on('dblclick', (e, d) => {
+        e.stopPropagation();
+        selectWord(d.id);
       });
   }
 
