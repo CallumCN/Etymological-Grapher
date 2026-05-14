@@ -2101,14 +2101,18 @@ function renderMorphemeEditor(word) {
   // ── Interaction: click = single char, mousedown+move = drag range ──
   function cellAtX(clientX) {
     const cells = charRow.querySelectorAll('.morph-char');
+    let closest = null, closestDist = Infinity;
     for (const cell of cells) {
       const r = cell.getBoundingClientRect();
       if (clientX >= r.left && clientX <= r.right) return parseInt(cell.dataset.ci);
+      // Track closest cell for clamping
+      const dist = Math.min(Math.abs(clientX - r.left), Math.abs(clientX - r.right));
+      if (dist < closestDist) { closestDist = dist; closest = cell; }
     }
+    if (closest) return parseInt(closest.dataset.ci);
+    // Fallback: clamp to sequence boundaries
     const rowRect = charRow.getBoundingClientRect();
-    if (clientX < rowRect.left) return 0;
-    if (clientX > rowRect.right) return chars.length - 1;
-    return null;
+    return clientX <= rowRect.left ? 0 : chars.length - 1;
   }
 
   function applyRange(lo, hi) {
