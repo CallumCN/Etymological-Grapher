@@ -1865,7 +1865,6 @@ function renderAncestorSlot(i) {
       <div class="ancestor-selected">
         <span style="font-size:1rem">${esc(selWord.word)}</span>
         <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--ink-light);margin-left:0.4rem">${esc(selWord.meaning)}</span>
-        <span class="ancestor-clear" onclick="clearAncestor(${i})">✕</span>
         <span class="ancestor-clear" onclick="removeAncestorSlot(${i})" style="margin-left:0.4rem;color:var(--ink-light);">− Remove</span>
       </div>`;
   } else {
@@ -2077,18 +2076,21 @@ function renderMorphemeEditor(word) {
   function applyRange(lo, hi) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
+      // Remove any assignment covering this range
       morphemeAssignments = morphemeAssignments.filter(m => !(m.end > start && m.start < end));
     } else {
       const idx = activeMorphemeBtn;
-      // Remove any overlapping assignments from other etymons
+      // Remove overlapping assignments from OTHER etymons only
       morphemeAssignments = morphemeAssignments.filter(m =>
         m.ancestorIdx === idx || !(m.end > start && m.start < end));
-      // Find ALL assignments for this etymon (including non-adjacent) and merge into one span
+      // Merge new range with ALL existing assignments for this etymon into one span
       const sameEtymon = morphemeAssignments.filter(m => m.ancestorIdx === idx);
       sameEtymon.forEach(m => { morphemeAssignments = morphemeAssignments.filter(x => x !== m); });
-      const allStarts = [start, ...sameEtymon.map(m => m.start)];
-      const allEnds   = [end,   ...sameEtymon.map(m => m.end)];
-      morphemeAssignments.push({ ancestorIdx: idx, start: Math.min(...allStarts), end: Math.max(...allEnds) });
+      morphemeAssignments.push({
+        ancestorIdx: idx,
+        start: Math.min(start, ...sameEtymon.map(m => m.start)),
+        end:   Math.max(end,   ...sameEtymon.map(m => m.end)),
+      });
       reorderAncestorsByMorphemes(word.length);
     }
     renderMorphemeEditor(word);
