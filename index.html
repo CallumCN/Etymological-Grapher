@@ -2081,7 +2081,7 @@ function renderMorphemeEditor(word) {
       // Cancel if the cleared range is entirely interior to a single assignment
       // (would split a contiguous region — not allowed)
       const wouldSplit = morphemeAssignments.some(m => m.start < start && m.end > end);
-      if (wouldSplit) return;
+      if (wouldSplit) { renderMorphemeEditor(word); return; }
 
       const result = [];
       morphemeAssignments.forEach(m => {
@@ -2098,29 +2098,26 @@ function renderMorphemeEditor(word) {
 
       // Collect existing assignments for this etymon BEFORE modifying the array
       const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
-      console.log('applyRange', {idx, start, end, same: JSON.stringify(same), all: JSON.stringify(morphemeAssignments)});
 
-      // Trim other etymons against the newly selected range only
+      // Compute the full merged span first
+      const allStarts = [start, ...same.map(m => m.start)];
+      const allEnds   = [end,   ...same.map(m => m.end)];
+      const mergedStart = Math.min(...allStarts);
+      const mergedEnd   = Math.max(...allEnds);
+
+      // Trim other etymons against the full merged span
       const trimmed = [];
       morphemeAssignments.forEach(m => {
         if (m.ancestorIdx === idx) return;
-        if (m.end <= start || m.start >= end) {
+        if (m.end <= mergedStart || m.start >= mergedEnd) {
           trimmed.push(m);
         } else {
-          if (m.start < start) trimmed.push({ ...m, end: start });
-          if (m.end   > end)   trimmed.push({ ...m, start: end });
+          if (m.start < mergedStart) trimmed.push({ ...m, end: mergedStart });
+          if (m.end   > mergedEnd)   trimmed.push({ ...m, start: mergedEnd });
         }
       });
       morphemeAssignments = trimmed;
-
-      // Merge new range with all prior assignments for this etymon into one contiguous span
-      const allStarts = [start, ...same.map(m => m.start)];
-      const allEnds   = [end,   ...same.map(m => m.end)];
-      morphemeAssignments.push({
-        ancestorIdx: idx,
-        start: Math.min(...allStarts),
-        end:   Math.max(...allEnds),
-      });
+      morphemeAssignments.push({ ancestorIdx: idx, start: mergedStart, end: mergedEnd });
       reorderAncestorsByMorphemes(word.length);
     }
     renderMorphemeEditor(word);
