@@ -2076,13 +2076,17 @@ function renderMorphemeEditor(word) {
   function applyRange(lo, hi) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
-      // Cancel the deselection if the cleared range is surrounded on both sides
-      // by characters from the same etymon (i.e. it would split a span)
+      // Cancel if the entire cleared range is surrounded on both sides by the same etymon
       const surrounding = morphemeAssignments.find(m =>
         m.start < start && m.end > end);
-      if (surrounding) return; // cancel — would split a contiguous region
+      if (surrounding) return;
+      // Also cancel if a drag range would split any single assignment
+      const spansSplit = morphemeAssignments.some(m =>
+        m.start <= start && m.end >= end && (m.start < start || m.end > end)
+          ? false  // not split — range is at an edge
+          : m.start < start && m.end > end);
+      // (already covered above) — keep for clarity, remove redundancy below
 
-      // Otherwise split assignments, keeping portions outside the cleared range
       const result = [];
       morphemeAssignments.forEach(m => {
         if (m.end <= start || m.start >= end) {
@@ -2096,11 +2100,13 @@ function renderMorphemeEditor(word) {
     } else {
       const idx = activeMorphemeBtn;
 
-      // Trim other etymons only against the newly selected range [start, end)
-      // not the full merged span — so existing selections aren't disturbed
+      // Collect existing assignments for this etymon BEFORE modifying the array
+      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+
+      // Trim other etymons against the newly selected range only
       const trimmed = [];
       morphemeAssignments.forEach(m => {
-        if (m.ancestorIdx === idx) return; // handled below
+        if (m.ancestorIdx === idx) return;
         if (m.end <= start || m.start >= end) {
           trimmed.push(m);
         } else {
@@ -2110,9 +2116,7 @@ function renderMorphemeEditor(word) {
       });
       morphemeAssignments = trimmed;
 
-      // Merge new range with all existing assignments for this etymon
-      const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
-      morphemeAssignments = morphemeAssignments.filter(m => m.ancestorIdx !== idx);
+      // Merge new range with all prior assignments for this etymon
       morphemeAssignments.push({
         ancestorIdx: idx,
         start: Math.min(start, ...same.map(m => m.start)),
