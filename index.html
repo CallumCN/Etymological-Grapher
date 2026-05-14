@@ -1676,8 +1676,8 @@ function editWord(id) {
   document.getElementById('f-transcription').value = w.transcription || '';
   document.getElementById('f-meaning').value = w.meaning || '';
   ancestorSlotValues = (w.ancestors || []).length > 0
-    ? [...w.ancestors.map(a => a || null), null]  // add one empty slot at end
-    : [null];
+    ? w.ancestors.map(a => a || null)
+    : [];
   morphemeAssignments = (w.morphemes || []).map(m => ({
     ancestorIdx: w.ancestors.indexOf(m.ancestorId),
     start: m.start,
@@ -1866,12 +1866,16 @@ function renderAncestorSlot(i) {
         <span style="font-size:1rem">${esc(selWord.word)}</span>
         <span style="font-family:'DM Mono',monospace;font-size:0.65rem;color:var(--ink-light);margin-left:0.4rem">${esc(selWord.meaning)}</span>
         <span class="ancestor-clear" onclick="clearAncestor(${i})">✕</span>
+        <span class="ancestor-clear" onclick="removeAncestorSlot(${i})" style="margin-left:0.4rem;color:var(--ink-light);">− Remove</span>
       </div>`;
   } else {
     slot.innerHTML = `
-      <div class="ancestor-search-wrap">
-        <input type="text" class="ancestor-input" id="ancestor-input-${i}" placeholder="${label}…" autocomplete="off">
-        <div class="ancestor-dropdown" id="ancestor-dd-${i}"></div>
+      <div class="ancestor-search-wrap" style="display:flex;gap:0;align-items:stretch;">
+        <div style="flex:1;position:relative;">
+          <input type="text" class="ancestor-input" id="ancestor-input-${i}" placeholder="${label}…" autocomplete="off">
+          <div class="ancestor-dropdown" id="ancestor-dd-${i}"></div>
+        </div>
+        <button class="ancestor-clear" onclick="removeAncestorSlot(${i})" style="padding:0 0.5rem;border:1px solid var(--paper-dark);border-left:none;background:var(--paper-mid);cursor:pointer;font-size:0.7rem;color:var(--ink-light);white-space:nowrap;">− Remove</button>
       </div>`;
     setTimeout(() => {
       const inp = document.getElementById('ancestor-input-' + i);
@@ -1915,16 +1919,6 @@ function renderAncestorSlot(i) {
         } else if (e.key === 'Escape') { dd.classList.remove('open'); highlightIdx = -1; }
       });
     }, 0);
-  }
-
-  // Remove button (only if more than one slot)
-  if (ancestorSlotValues.length > 1) {
-    const rmBtn = document.createElement('button');
-    rmBtn.className = 'ancestor-clear';
-    rmBtn.style.cssText = 'float:right;margin-top:0.2rem;font-size:0.6rem;';
-    rmBtn.textContent = '− Remove';
-    rmBtn.onclick = () => removeAncestorSlot(i);
-    slot.appendChild(rmBtn);
   }
 
   const slots = container.children;
@@ -2081,20 +2075,20 @@ function renderMorphemeEditor(word) {
   }
 
   function applyRange(lo, hi) {
-    // lo/hi are inclusive char indices; fill gap for contiguous selection
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
       morphemeAssignments = morphemeAssignments.filter(m => !(m.end > start && m.start < end));
     } else {
       const idx = activeMorphemeBtn;
-      morphemeAssignments = morphemeAssignments.filter(m => !(m.end > start && m.start < end));
-      // Merge adjacent same-etymon assignments
-      const adj = morphemeAssignments.filter(m => m.ancestorIdx === idx &&
-        m.end >= start && m.start <= end);
-      adj.forEach(m => { morphemeAssignments = morphemeAssignments.filter(x => x !== m); });
-      const newStart = Math.min(start, ...adj.map(m => m.start));
-      const newEnd   = Math.max(end,   ...adj.map(m => m.end));
-      morphemeAssignments.push({ ancestorIdx: idx, start: newStart, end: newEnd });
+      // Remove any overlapping assignments from other etymons
+      morphemeAssignments = morphemeAssignments.filter(m =>
+        m.ancestorIdx === idx || !(m.end > start && m.start < end));
+      // Find ALL assignments for this etymon (including non-adjacent) and merge into one span
+      const sameEtymon = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+      sameEtymon.forEach(m => { morphemeAssignments = morphemeAssignments.filter(x => x !== m); });
+      const allStarts = [start, ...sameEtymon.map(m => m.start)];
+      const allEnds   = [end,   ...sameEtymon.map(m => m.end)];
+      morphemeAssignments.push({ ancestorIdx: idx, start: Math.min(...allStarts), end: Math.max(...allEnds) });
       reorderAncestorsByMorphemes(word.length);
     }
     renderMorphemeEditor(word);
