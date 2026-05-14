@@ -2377,166 +2377,108 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
       rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
       rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
       rect.setAttribute('rx', 2);
-      rect.setAttribute('fill', '#f0ece3');
-      rect.setAttribute('stroke', '#ccc8bc');
-      rect.setAttribute('stroke-width', '1');
+  const FILL_NORMAL  = 'rgba(154,136,112,0.22)';
+  const FILL_HOVER   = 'rgba(154,136,112,0.42)';
+  const TEXT_NORMAL  = '#1a1814';
+  const TEXT_HOVER   = '#9a8870';
+
+  // Map from nodeId → its SVG text element (built in pass 2, used for hover)
+  const textEls = {};
+
+  // ── Build compound union path for a parent's outgoing shape ──
+  // The shape is: rectangle body (pnl,pnt)→(pnr,pnb) UNION each leg bezier.
+  // We represent this as one SVG path using subpaths + fill-rule=nonzero,
+  // with the body rect traced CW and each leg traced CW — they merge seamlessly.
+  function buildParentPath(pnl, pnr, pnt, pnb, legs) {
+    let d = '';
+
+    // Body rectangle (clockwise)
+    d += `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
+
+    // Each leg (clockwise from bottom-left)
+    legs.forEach(leg => {
+      d += ` M ${leg.cx0} ${leg.cy}` +
+           ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
+           ` L ${pnr} ${pnb}` +
+           ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
+           ` Z`;
+    });
+
+    return d;
+  }
+
+  // ── Pass 0: unassigned dotted lines (optional) ──
+  if (showUnassigned) {
+    nodes.forEach(child => {
+      (child.ancestors || []).filter(aid => byId[aid]).forEach(ancId => {
+        if ((child.morphemes || []).some(m => m.ancestorId === ancId)) return;
+        const parent = byId[ancId];
+        if (!parent || !pos[parent.id] || !pos[child.id]) return;
+        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+        line.setAttribute('x1', pos[parent.id].x); line.setAttribute('y1', nodeBottom(parent));
+        line.setAttribute('x2', pos[child.id].x);  line.setAttribute('y2', nodeTop(child));
+        line.setAttribute('stroke', FLOW_COLOR);
+        line.setAttribute('stroke-width', '1');
+        line.setAttribute('stroke-dasharray', '4 4');
+        line.setAttribute('opacity', '0.5');
+        g.appendChild(line);
+      });
+    });
+  }
+
+  // ── Pass 1: outgoing flow shapes (one union path per parent) ──
+  nodes.forEach(parent => {
+    const legs = outgoing[parent.id];
+    const pnl  = nodeLeft(parent);
+    const pnr  = pnl + wordWidth(parent.word);
+    const pnt  = nodeTop(parent);
+    const pnb  = nodeBottom(parent);
+
+    if (!legs || !legs.length) {
+      // Leaf node — plain filled rectangle, no border
+      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
+      rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
+      rect.setAttribute('fill', FILL_NORMAL);
+      rect.setAttribute('stroke', 'none');
       rect.style.cursor = 'default';
-      rect.addEventListener('mouseenter', e => showFluvialTooltip(parent, pos[parent.id].x, pnt));
+      rect.addEventListener('mouseenter', () => showFluvialTooltip(parent, pos[parent.id].x, pnt));
       rect.addEventListener('mouseleave', hideFluvialTooltip);
       g.appendChild(rect);
       return;
     }
 
-    // Sort legs left-to-right by cx0
     legs.sort((a, b) => a.cx0 - b.cx0);
 
-    // Build compound path:
-    // Outer silhouette: up left side, across top, down right side,
-    // then trace the bottom — right edge of rightmost leg, gap bridges, left edges back.
-    // We build this as one filled shape.
-    //
-    // Strategy: trace clockwise outline.
-    // 1) Start at bottom-left of leftmost leg (cx0 of first leg at cy level)
-    // 2) Bezier up to parent bottom-left (pnl, pnb)
-    // 3) Line up to parent top-left (pnl, pnt)
-    // 4) Line across to parent top-right (pnr, pnt)
-    // 5) Line down to parent bottom-right (pnr, pnb)
-    // 6) Bezier down to bottom-right of rightmost leg
-    // 7) Line left to bottom-left of rightmost leg
-    // 8) Bezier up to parent bottom, between rightmost and next leg (if any)
-    // 9) Straight line between legs at parent bottom level
-    // 10) Repeat for each gap between legs
-    // 11) Bezier down to bottom-right of next leg ... continue ...
-    // 12) Close at start
+    const pathEl = document.createElementNS('http://www.w3.org/2000/svg','path');
+    pathEl.setAttribute('d', buildParentPath(pnl, pnr, pnt, pnb, legs));
+    pathEl.setAttribute('fill', FILL_NORMAL);
+    pathEl.setAttribute('fill-rule', 'nonzero');
+    pathEl.setAttribute('stroke', 'none');
+    pathEl.style.cursor = 'default';
 
-    const first = legs[0];
-    const last  = legs[legs.length - 1];
-
-    let d = '';
-
-    // Start at bottom-left of leftmost leg
-    d += `M ${first.cx0} ${first.cy}`;
-    // Bezier up-left to parent bottom-left
-    d += ` C ${first.cx0} ${first.my}, ${pnl} ${first.my}, ${pnl} ${pnb}`;
-    // Up left side and across top
-    d += ` L ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb}`;
-    // Bezier down-right to bottom-right of rightmost leg
-    d += ` C ${pnr} ${last.my}, ${last.cx1} ${last.my}, ${last.cx1} ${last.cy}`;
-    // Trace bottom edges right→left, bridging gaps
-    for (let i = legs.length - 1; i >= 0; i--) {
-      const leg = legs[i];
-      // Left edge of this leg at child level
-      d += ` L ${leg.cx0} ${leg.cy}`;
-      if (i > 0) {
-        const prev = legs[i - 1];
-        // Bridge gap: bezier up to parent bottom between legs, across, back down
-        d += ` C ${leg.cx0} ${leg.my}, ${pnl + (leg.cx0 - pnl) * 0.5 + (prev.cx1 - pnl) * 0.5} ${pnb}`;
-        d += `, ${prev.cx1} ${prev.my}`;
-        // Actually simpler: straight bridge at parent bottom level, two beziers
-        // Redo: bezier from leg.cx0 up to parent bottom near leg.cx0, straight to near prev.cx1, bezier down
-      }
-    }
-    // Close back to start
-    d += ' Z';
-
-    // Simpler correct path — separate the shape into:
-    // A) Filled rectangle (top body)
-    // B) Filled bezier legs (each independently)
-    // Rendered as a group with same fill so they look unified
-
-    // Draw rectangle body
-    const bodyRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    bodyRect.setAttribute('x', pnl); bodyRect.setAttribute('y', pnt);
-    bodyRect.setAttribute('width', pnr - pnl); bodyRect.setAttribute('height', NODE_H);
-    bodyRect.setAttribute('fill', '#f0ece3');
-    bodyRect.setAttribute('stroke', 'none');
-    bodyRect.setAttribute('pointer-events', 'none');
-    g.appendChild(bodyRect);
-
-    // Draw each leg as bezier shape
-    legs.forEach(leg => {
-      const legPath = document.createElementNS('http://www.w3.org/2000/svg','path');
-      const ld = `M ${leg.cx0} ${leg.cy}` +
-                 ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
-                 ` L ${pnr} ${pnb}` +
-                 ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
-                 ` Z`;
-      legPath.setAttribute('d', ld);
-      legPath.setAttribute('fill', '#f0ece3');
-      legPath.setAttribute('stroke', 'none');
-      legPath.setAttribute('pointer-events', 'none');
-      g.appendChild(legPath);
+    // Hover: highlight this whole shape + change child text colour for each leg
+    pathEl.addEventListener('mouseenter', () => {
+      pathEl.setAttribute('fill', FILL_HOVER);
+      showFluvialTooltip(parent, pos[parent.id].x, pnt);
+      legs.forEach(leg => {
+        const t = textEls[leg.child.id];
+        if (t) t.setAttribute('fill', TEXT_HOVER);
+      });
+    });
+    pathEl.addEventListener('mouseleave', () => {
+      pathEl.setAttribute('fill', FILL_NORMAL);
+      hideFluvialTooltip();
+      legs.forEach(leg => {
+        const t = textEls[leg.child.id];
+        if (t) t.setAttribute('fill', TEXT_NORMAL);
+      });
     });
 
-    // Invisible hit area over the whole shape for tooltip
-    const hitRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    hitRect.setAttribute('x', pnl); hitRect.setAttribute('y', pnt);
-    hitRect.setAttribute('width', pnr - pnl); hitRect.setAttribute('height', NODE_H);
-    hitRect.setAttribute('fill', 'transparent');
-    hitRect.setAttribute('stroke', 'none');
-    hitRect.style.cursor = 'default';
-    hitRect.addEventListener('mouseenter', e => showFluvialTooltip(parent, pos[parent.id].x, pnt));
-    hitRect.addEventListener('mouseleave', hideFluvialTooltip);
-    g.appendChild(hitRect);
-
-    // Outline: border on top and sides of body rect, plus leg outlines
-    const outlineRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    outlineRect.setAttribute('x', pnl); outlineRect.setAttribute('y', pnt);
-    outlineRect.setAttribute('width', pnr - pnl); outlineRect.setAttribute('height', NODE_H);
-    outlineRect.setAttribute('fill', 'none');
-    outlineRect.setAttribute('stroke', '#ccc8bc');
-    outlineRect.setAttribute('stroke-width', '1');
-    // Only draw top+sides, not bottom (legs continue from bottom)
-    // Use clip: draw rect stroke then overdraw bottom with body color
-    outlineRect.setAttribute('pointer-events', 'none');
-    g.appendChild(outlineRect);
-
-    // Cover the bottom edge of the outline rect with a fill line so legs appear contiguous
-    const bottomCover = document.createElementNS('http://www.w3.org/2000/svg','line');
-    bottomCover.setAttribute('x1', pnl); bottomCover.setAttribute('y1', pnb);
-    bottomCover.setAttribute('x2', pnr); bottomCover.setAttribute('y2', pnb);
-    bottomCover.setAttribute('stroke', '#f0ece3');
-    bottomCover.setAttribute('stroke-width', '1.5');
-    bottomCover.setAttribute('pointer-events', 'none');
-    g.appendChild(bottomCover);
-
-    // Draw highlight rect on hover over flow (on the child node)
-    legs.forEach(leg => {
-      const hoverPath = document.createElementNS('http://www.w3.org/2000/svg','path');
-      const ld = `M ${leg.cx0} ${leg.cy}` +
-                 ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
-                 ` L ${pnr} ${pnb}` +
-                 ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
-                 ` Z`;
-      hoverPath.setAttribute('d', ld);
-      hoverPath.setAttribute('fill', 'transparent');
-      hoverPath.setAttribute('stroke', 'none');
-      hoverPath.style.cursor = 'default';
-      hoverPath.addEventListener('mouseenter', () => {
-        hoverPath.setAttribute('fill', `${FLOW_COLOR}33`);
-        // Highlight morpheme region on child
-        const hl = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        hl.id = 'fluvial-hl';
-        const nl = nodeLeft(leg.child);
-        const nt = nodeTop(leg.child);
-        hl.setAttribute('x',      leg.cx0);
-        hl.setAttribute('y',      nt);
-        hl.setAttribute('width',  leg.cx1 - leg.cx0);
-        hl.setAttribute('height', NODE_H);
-        hl.setAttribute('fill',   FLOW_COLOR);
-        hl.setAttribute('opacity','0.35');
-        hl.setAttribute('pointer-events', 'none');
-        g.appendChild(hl);
-      });
-      hoverPath.addEventListener('mouseleave', () => {
-        hoverPath.setAttribute('fill', 'transparent');
-        document.getElementById('fluvial-hl')?.remove();
-      });
-      g.appendChild(hoverPath);
-    });
+    g.appendChild(pathEl);
   });
 
-  // ── Pass 2: word text (always on top) ──
+  // ── Pass 2: word text (always on top, pointer-events none so hover reaches shapes) ──
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
@@ -2546,9 +2488,10 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     txt.setAttribute('text-anchor', 'middle');
     txt.setAttribute('font-family', '"Cormorant Garamond",serif');
     txt.setAttribute('font-size', FONT_SIZE);
-    txt.setAttribute('fill', '#1a1814');
+    txt.setAttribute('fill', TEXT_NORMAL);
     txt.setAttribute('pointer-events', 'none');
     txt.textContent = n.word;
+    textEls[n.id] = txt;
     g.appendChild(txt);
   });
 
