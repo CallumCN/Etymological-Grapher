@@ -2098,6 +2098,7 @@ function renderMorphemeEditor(word) {
 
       // Collect existing assignments for this etymon BEFORE modifying the array
       const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
+      console.log('applyRange', {idx, start, end, same: JSON.stringify(same), all: JSON.stringify(morphemeAssignments)});
 
       // Trim other etymons against the newly selected range only
       const trimmed = [];
