@@ -2029,23 +2029,51 @@ function renderMorphemeEditor(word) {
     return morphemeAssignments.find(m => ci >= m.start && ci < m.end);
   }
 
+  function getAssignments(ci) {
+    return morphemeAssignments.filter(m => ci >= m.start && ci < m.end);
+  }
+
+  function cellColor(assignments) {
+    if (!assignments.length) return null;
+    if (assignments.length === 1) return ancestorColor(assignments[0].ancestorIdx);
+    // Two+ etymons: diagonal split using CSS gradient
+    const colors = assignments.map(a => ancestorColor(a.ancestorIdx));
+    const step = 100 / colors.length;
+    const stops = colors.map((c, i) =>
+      `${c} ${i * step}%, ${c} ${(i + 1) * step}%`).join(', ');
+    return `linear-gradient(135deg, ${stops})`;
+  }
+
   function paintCells(previewLo, previewHi) {
-    // previewLo/previewHi: range being previewed (or null for none)
     charRow.querySelectorAll('.morph-char').forEach(cell => {
       const ci = parseInt(cell.dataset.ci);
       const inPreview = previewLo !== null && ci >= previewLo && ci <= previewHi;
-      if (inPreview) {
+      if (inPreview && activeMorphemeBtn !== null) {
         if (activeMorphemeBtn === 'clear') {
           cell.style.background = '';
+          cell.style.backgroundImage = '';
           cell.classList.remove('assigned');
         } else {
           cell.style.background = ancestorColor(activeMorphemeBtn);
           cell.classList.add('assigned');
         }
       } else {
-        const a = getAssignment(ci);
-        if (a) { cell.style.background = ancestorColor(a.ancestorIdx); cell.classList.add('assigned'); }
-        else   { cell.style.background = ''; cell.classList.remove('assigned'); }
+        const as = getAssignments(ci);
+        if (as.length) {
+          const color = cellColor(as);
+          if (color?.startsWith('linear')) {
+            cell.style.backgroundImage = color;
+            cell.style.background = '';
+          } else {
+            cell.style.background = color;
+            cell.style.backgroundImage = '';
+          }
+          cell.classList.add('assigned');
+        } else {
+          cell.style.background = '';
+          cell.style.backgroundImage = '';
+          cell.classList.remove('assigned');
+        }
       }
     });
   }
@@ -2055,8 +2083,16 @@ function renderMorphemeEditor(word) {
     cell.className = 'morph-char';
     cell.textContent = ch;
     cell.dataset.ci = ci;
-    const a = getAssignment(ci);
-    if (a) { cell.style.background = ancestorColor(a.ancestorIdx); cell.classList.add('assigned'); }
+    const as = getAssignments(ci);
+    if (as.length) {
+      const color = cellColor(as);
+      if (color?.startsWith('linear')) {
+        cell.style.backgroundImage = color;
+      } else {
+        cell.style.background = color;
+      }
+      cell.classList.add('assigned');
+    }
     charRow.appendChild(cell);
   });
 
@@ -2079,7 +2115,6 @@ function renderMorphemeEditor(word) {
     const start = lo, end = hi + 1;
     if (activeMorphemeBtn === 'clear') {
       // Cancel if the cleared range is entirely interior to a single assignment
-      // (would split a contiguous region — not allowed)
       const wouldSplit = morphemeAssignments.some(m => m.start < start && m.end > end);
       if (wouldSplit) { renderMorphemeEditor(word); return; }
 
@@ -2099,24 +2134,14 @@ function renderMorphemeEditor(word) {
       // Collect existing assignments for this etymon BEFORE modifying the array
       const same = morphemeAssignments.filter(m => m.ancestorIdx === idx);
 
-      // Compute the full merged span first
+      // Compute the full merged span (fills gap between discontiguous selections)
       const allStarts = [start, ...same.map(m => m.start)];
       const allEnds   = [end,   ...same.map(m => m.end)];
       const mergedStart = Math.min(...allStarts);
       const mergedEnd   = Math.max(...allEnds);
 
-      // Trim other etymons against the full merged span
-      const trimmed = [];
-      morphemeAssignments.forEach(m => {
-        if (m.ancestorIdx === idx) return;
-        if (m.end <= mergedStart || m.start >= mergedEnd) {
-          trimmed.push(m);
-        } else {
-          if (m.start < mergedStart) trimmed.push({ ...m, end: mergedStart });
-          if (m.end   > mergedEnd)   trimmed.push({ ...m, start: mergedEnd });
-        }
-      });
-      morphemeAssignments = trimmed;
+      // Remove only this etymon's prior assignments, leave others untouched
+      morphemeAssignments = morphemeAssignments.filter(m => m.ancestorIdx !== idx);
       morphemeAssignments.push({ ancestorIdx: idx, start: mergedStart, end: mergedEnd });
       reorderAncestorsByMorphemes(word.length);
     }
