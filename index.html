@@ -2269,6 +2269,10 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   const NODE_H     = 32;
   const FONT_SIZE  = 15;
   const FLOW_COLOR = '#9a8870';
+  const FILL_NORMAL = 'rgba(154,136,112,0.22)';
+  const FILL_HOVER  = 'rgba(154,136,112,0.42)';
+  const TEXT_NORMAL = '#1a1814';
+  const TEXT_HOVER  = '#9a8870';
 
   const measureEl = document.createElementNS('http://www.w3.org/2000/svg','text');
   measureEl.style.cssText = `font-family:"Cormorant Garamond",serif;font-size:${FONT_SIZE}px;visibility:hidden;`;
@@ -2298,14 +2302,11 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   function nodeTop(n)    { return pos[n.id].y - NODE_H / 2; }
   function nodeBottom(n) { return pos[n.id].y + NODE_H / 2; }
 
-  // Precompute charInfos per node (needed for highlight rects)
   const charInfoCache = {};
   nodes.forEach(n => { charInfoCache[n.id] = charInfos(n.word); });
 
-  // ── Build outgoing flow data per parent ──────────────────────────────────
-  // For each parent, collect all children with morpheme data pointing to it,
-  // compute their cx0/cx1 at child-top level, sort left-to-right.
-  const outgoing = {}; // parentId → [{child, cm, cx0, cx1, cy, my, slice}]
+  // ── Build outgoing flow data per parent ──
+  const outgoing = {};
   nodes.forEach(child => {
     (child.ancestors || []).forEach(ancId => {
       if (!byId[ancId]) return;
@@ -2328,74 +2329,9 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     });
   });
 
-  // ── Pass 0: unassigned dotted lines (optional) ──
-  if (showUnassigned) {
-    nodes.forEach(child => {
-      (child.ancestors || []).filter(aid => byId[aid]).forEach(ancId => {
-        if ((child.morphemes || []).some(m => m.ancestorId === ancId)) return;
-        const parent = byId[ancId];
-        if (!parent || !pos[parent.id] || !pos[child.id]) return;
-        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-        line.setAttribute('x1', pos[parent.id].x); line.setAttribute('y1', nodeBottom(parent));
-        line.setAttribute('x2', pos[child.id].x);  line.setAttribute('y2', nodeTop(child));
-        line.setAttribute('stroke', '#9a8870');
-        line.setAttribute('stroke-width', '1');
-        line.setAttribute('stroke-dasharray', '4 4');
-        line.setAttribute('opacity', '0.5');
-        g.appendChild(line);
-      });
-    });
-  }
-
-  // Tooltip helper (reuse existing tooltip element)
-  const tooltipEl = document.getElementById('graph-tooltip');
-  function showFluvialTooltip(n, svgX, svgY) {
-    document.getElementById('tt-word').textContent  = n.word;
-    document.getElementById('tt-trans').textContent = n.transcription || '';
-    document.getElementById('tt-gloss').textContent = n.meaning || '';
-    // Convert SVG coords to screen coords
-    const svgRect = svgEl.getBoundingClientRect();
-    const screenX = svgRect.left + bTx + svgX * bScale;
-    const screenY = svgRect.top  + bTy + svgY * bScale;
-    tooltipEl.style.left = (screenX - svgRect.left + 12) + 'px';
-    tooltipEl.style.top  = (screenY - svgRect.top  - 8)  + 'px';
-    tooltipEl.classList.add('visible');
-  }
-  function hideFluvialTooltip() { tooltipEl.classList.remove('visible'); }
-
-  // ── Pass 1: outgoing flow shapes (rectangle + legs, one per parent) ──
-  nodes.forEach(parent => {
-    const legs = outgoing[parent.id];
-    const pnl  = nodeLeft(parent);
-    const pnr  = pnl + wordWidth(parent.word);
-    const pnt  = nodeTop(parent);
-    const pnb  = nodeBottom(parent);
-
-    if (!legs || !legs.length) {
-      // Leaf / no outgoing morpheme flows — draw plain rectangle
-      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
-      rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
-      rect.setAttribute('rx', 2);
-  const FILL_NORMAL  = 'rgba(154,136,112,0.22)';
-  const FILL_HOVER   = 'rgba(154,136,112,0.42)';
-  const TEXT_NORMAL  = '#1a1814';
-  const TEXT_HOVER   = '#9a8870';
-
-  // Map from nodeId → its SVG text element (built in pass 2, used for hover)
-  const textEls = {};
-
-  // ── Build compound union path for a parent's outgoing shape ──
-  // The shape is: rectangle body (pnl,pnt)→(pnr,pnb) UNION each leg bezier.
-  // We represent this as one SVG path using subpaths + fill-rule=nonzero,
-  // with the body rect traced CW and each leg traced CW — they merge seamlessly.
+  // ── Union path builder ──
   function buildParentPath(pnl, pnr, pnt, pnb, legs) {
-    let d = '';
-
-    // Body rectangle (clockwise)
-    d += `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
-
-    // Each leg (clockwise from bottom-left)
+    let d = `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
     legs.forEach(leg => {
       d += ` M ${leg.cx0} ${leg.cy}` +
            ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
@@ -2403,9 +2339,21 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
            ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
            ` Z`;
     });
-
     return d;
   }
+
+  // ── Tooltip helper ──
+  const tooltipEl = document.getElementById('graph-tooltip');
+  function showFluvialTooltip(n, svgX, svgY) {
+    document.getElementById('tt-word').textContent  = n.word;
+    document.getElementById('tt-trans').textContent = n.transcription || '';
+    document.getElementById('tt-gloss').textContent = n.meaning || '';
+    const svgRect = svgEl.getBoundingClientRect();
+    tooltipEl.style.left = (bTx + svgX * bScale + 12) + 'px';
+    tooltipEl.style.top  = (bTy + svgY * bScale - 8)  + 'px';
+    tooltipEl.classList.add('visible');
+  }
+  function hideFluvialTooltip() { tooltipEl.classList.remove('visible'); }
 
   // ── Pass 0: unassigned dotted lines (optional) ──
   if (showUnassigned) {
@@ -2426,7 +2374,9 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     });
   }
 
-  // ── Pass 1: outgoing flow shapes (one union path per parent) ──
+  // ── Pass 1: one union path per parent ──
+  const textEls = {};
+
   nodes.forEach(parent => {
     const legs = outgoing[parent.id];
     const pnl  = nodeLeft(parent);
@@ -2435,7 +2385,6 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     const pnb  = nodeBottom(parent);
 
     if (!legs || !legs.length) {
-      // Leaf node — plain filled rectangle, no border
       const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
       rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
       rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
@@ -2457,7 +2406,6 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     pathEl.setAttribute('stroke', 'none');
     pathEl.style.cursor = 'default';
 
-    // Hover: highlight this whole shape + change child text colour for each leg
     pathEl.addEventListener('mouseenter', () => {
       pathEl.setAttribute('fill', FILL_HOVER);
       showFluvialTooltip(parent, pos[parent.id].x, pnt);
@@ -2478,7 +2426,7 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     g.appendChild(pathEl);
   });
 
-  // ── Pass 2: word text (always on top, pointer-events none so hover reaches shapes) ──
+  // ── Pass 2: word text (on top, pointer-events none) ──
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
