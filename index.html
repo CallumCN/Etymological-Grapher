@@ -2302,6 +2302,32 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   const charInfoCache = {};
   nodes.forEach(n => { charInfoCache[n.id] = charInfos(n.word); });
 
+  // ── Build outgoing flow data per parent ──────────────────────────────────
+  // For each parent, collect all children with morpheme data pointing to it,
+  // compute their cx0/cx1 at child-top level, sort left-to-right.
+  const outgoing = {}; // parentId → [{child, cm, cx0, cx1, cy, my, slice}]
+  nodes.forEach(child => {
+    (child.ancestors || []).forEach(ancId => {
+      if (!byId[ancId]) return;
+      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
+      if (!cm) return;
+      const ci    = charInfoCache[child.id];
+      const slice = ci.slice(cm.start, cm.end);
+      if (!slice.length) return;
+      const cnl = nodeLeft(child);
+      const cnw = wordWidth(child.word);
+      const isLeft  = cm.start === 0;
+      const isRight = cm.end === child.word.length;
+      const cx0 = isLeft  ? cnl       : cnl + slice[0].x;
+      const cx1 = isRight ? cnl + cnw : cnl + slice[slice.length-1].x + slice[slice.length-1].w;
+      const cy  = nodeTop(child);
+      const py  = nodeBottom(byId[ancId]);
+      const my  = (py + cy) / 2;
+      if (!outgoing[ancId]) outgoing[ancId] = [];
+      outgoing[ancId].push({ child, cm, cx0, cx1, cy, my, slice });
+    });
+  });
+
   // ── Pass 0: unassigned dotted lines (optional) ──
   if (showUnassigned) {
     nodes.forEach(child => {
@@ -2321,102 +2347,199 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     });
   }
 
-  // ── Pass 1: flows (only when both endpoints have morpheme data) ──
-  nodes.forEach(child => {
-    const ancestors = (child.ancestors || []).filter(aid => byId[aid]);
-    if (!ancestors.length) return;
-    const cp  = pos[child.id];
-    if (!cp) return;
-    const cnl = nodeLeft(child);
-    const cTop = nodeTop(child);
+  // Tooltip helper (reuse existing tooltip element)
+  const tooltipEl = document.getElementById('graph-tooltip');
+  function showFluvialTooltip(n, svgX, svgY) {
+    document.getElementById('tt-word').textContent  = n.word;
+    document.getElementById('tt-trans').textContent = n.transcription || '';
+    document.getElementById('tt-gloss').textContent = n.meaning || '';
+    // Convert SVG coords to screen coords
+    const svgRect = svgEl.getBoundingClientRect();
+    const screenX = svgRect.left + bTx + svgX * bScale;
+    const screenY = svgRect.top  + bTy + svgY * bScale;
+    tooltipEl.style.left = (screenX - svgRect.left + 12) + 'px';
+    tooltipEl.style.top  = (screenY - svgRect.top  - 8)  + 'px';
+    tooltipEl.classList.add('visible');
+  }
+  function hideFluvialTooltip() { tooltipEl.classList.remove('visible'); }
 
-    ancestors.forEach((ancId, ancIdx) => {
-      const parent = byId[ancId];
-      if (!parent) return;
-      const pp   = pos[parent.id];
-      if (!pp) return;
+  // ── Pass 1: outgoing flow shapes (rectangle + legs, one per parent) ──
+  nodes.forEach(parent => {
+    const legs = outgoing[parent.id];
+    const pnl  = nodeLeft(parent);
+    const pnr  = pnl + wordWidth(parent.word);
+    const pnt  = nodeTop(parent);
+    const pnb  = nodeBottom(parent);
 
-      // Only draw flow if child has morpheme data for this ancestor
-      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
-      if (!cm) return;
+    if (!legs || !legs.length) {
+      // Leaf / no outgoing morpheme flows — draw plain rectangle
+      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
+      rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
+      rect.setAttribute('rx', 2);
+      rect.setAttribute('fill', '#f0ece3');
+      rect.setAttribute('stroke', '#ccc8bc');
+      rect.setAttribute('stroke-width', '1');
+      rect.style.cursor = 'default';
+      rect.addEventListener('mouseenter', e => showFluvialTooltip(parent, pos[parent.id].x, pnt));
+      rect.addEventListener('mouseleave', hideFluvialTooltip);
+      g.appendChild(rect);
+      return;
+    }
 
-      // Child x-range from morpheme data
-      const ci    = charInfoCache[child.id];
-      const slice = ci.slice(cm.start, cm.end);
-      if (!slice.length) return;
-      const cnw   = wordWidth(child.word);
+    // Sort legs left-to-right by cx0
+    legs.sort((a, b) => a.cx0 - b.cx0);
 
-      // Snap to node edges when this morpheme covers the leftmost or rightmost character
-      const isLeftmost  = cm.start === 0;
-      const isRightmost = cm.end   === child.word.length;
-      const cx0 = isLeftmost  ? cnl        : cnl + slice[0].x;
-      const cx1 = isRightmost ? cnl + cnw  : cnl + slice[slice.length-1].x + slice[slice.length-1].w;
+    // Build compound path:
+    // Outer silhouette: up left side, across top, down right side,
+    // then trace the bottom — right edge of rightmost leg, gap bridges, left edges back.
+    // We build this as one filled shape.
+    //
+    // Strategy: trace clockwise outline.
+    // 1) Start at bottom-left of leftmost leg (cx0 of first leg at cy level)
+    // 2) Bezier up to parent bottom-left (pnl, pnb)
+    // 3) Line up to parent top-left (pnl, pnt)
+    // 4) Line across to parent top-right (pnr, pnt)
+    // 5) Line down to parent bottom-right (pnr, pnb)
+    // 6) Bezier down to bottom-right of rightmost leg
+    // 7) Line left to bottom-left of rightmost leg
+    // 8) Bezier up to parent bottom, between rightmost and next leg (if any)
+    // 9) Straight line between legs at parent bottom level
+    // 10) Repeat for each gap between legs
+    // 11) Bezier down to bottom-right of next leg ... continue ...
+    // 12) Close at start
 
-      // Parent x-range: full parent width (river flows from entire parent into the morpheme)
-      const pnl  = nodeLeft(parent);
-      const pnw  = wordWidth(parent.word);
-      const px0  = pnl;
-      const px1  = pnl + pnw;
-      const py   = nodeBottom(parent);
-      const cy   = cTop;
-      const my   = (py + cy) / 2;
+    const first = legs[0];
+    const last  = legs[legs.length - 1];
 
-      const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      const d = `M ${px0} ${py} C ${px0} ${my}, ${cx0} ${my}, ${cx0} ${cy}` +
-                ` L ${cx1} ${cy} C ${cx1} ${my}, ${px1} ${my}, ${px1} ${py} Z`;
-      path.setAttribute('d', d);
-      path.setAttribute('fill', FLOW_COLOR);
-      path.setAttribute('opacity', '0.25');
-      path.setAttribute('stroke', 'none');
-      path.setAttribute('cursor', 'default');
-      path.dataset.childId  = child.id;
-      path.dataset.ancId    = ancId;
-      path.dataset.start    = cm.start;
-      path.dataset.end      = cm.end;
+    let d = '';
 
-      // Hover: highlight child morpheme region
-      path.addEventListener('mouseenter', () => {
-        path.setAttribute('opacity', '0.5');
-        // Show highlight rect on child node
+    // Start at bottom-left of leftmost leg
+    d += `M ${first.cx0} ${first.cy}`;
+    // Bezier up-left to parent bottom-left
+    d += ` C ${first.cx0} ${first.my}, ${pnl} ${first.my}, ${pnl} ${pnb}`;
+    // Up left side and across top
+    d += ` L ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb}`;
+    // Bezier down-right to bottom-right of rightmost leg
+    d += ` C ${pnr} ${last.my}, ${last.cx1} ${last.my}, ${last.cx1} ${last.cy}`;
+    // Trace bottom edges right→left, bridging gaps
+    for (let i = legs.length - 1; i >= 0; i--) {
+      const leg = legs[i];
+      // Left edge of this leg at child level
+      d += ` L ${leg.cx0} ${leg.cy}`;
+      if (i > 0) {
+        const prev = legs[i - 1];
+        // Bridge gap: bezier up to parent bottom between legs, across, back down
+        d += ` C ${leg.cx0} ${leg.my}, ${pnl + (leg.cx0 - pnl) * 0.5 + (prev.cx1 - pnl) * 0.5} ${pnb}`;
+        d += `, ${prev.cx1} ${prev.my}`;
+        // Actually simpler: straight bridge at parent bottom level, two beziers
+        // Redo: bezier from leg.cx0 up to parent bottom near leg.cx0, straight to near prev.cx1, bezier down
+      }
+    }
+    // Close back to start
+    d += ' Z';
+
+    // Simpler correct path — separate the shape into:
+    // A) Filled rectangle (top body)
+    // B) Filled bezier legs (each independently)
+    // Rendered as a group with same fill so they look unified
+
+    // Draw rectangle body
+    const bodyRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    bodyRect.setAttribute('x', pnl); bodyRect.setAttribute('y', pnt);
+    bodyRect.setAttribute('width', pnr - pnl); bodyRect.setAttribute('height', NODE_H);
+    bodyRect.setAttribute('fill', '#f0ece3');
+    bodyRect.setAttribute('stroke', 'none');
+    bodyRect.setAttribute('pointer-events', 'none');
+    g.appendChild(bodyRect);
+
+    // Draw each leg as bezier shape
+    legs.forEach(leg => {
+      const legPath = document.createElementNS('http://www.w3.org/2000/svg','path');
+      const ld = `M ${leg.cx0} ${leg.cy}` +
+                 ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
+                 ` L ${pnr} ${pnb}` +
+                 ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
+                 ` Z`;
+      legPath.setAttribute('d', ld);
+      legPath.setAttribute('fill', '#f0ece3');
+      legPath.setAttribute('stroke', 'none');
+      legPath.setAttribute('pointer-events', 'none');
+      g.appendChild(legPath);
+    });
+
+    // Invisible hit area over the whole shape for tooltip
+    const hitRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    hitRect.setAttribute('x', pnl); hitRect.setAttribute('y', pnt);
+    hitRect.setAttribute('width', pnr - pnl); hitRect.setAttribute('height', NODE_H);
+    hitRect.setAttribute('fill', 'transparent');
+    hitRect.setAttribute('stroke', 'none');
+    hitRect.style.cursor = 'default';
+    hitRect.addEventListener('mouseenter', e => showFluvialTooltip(parent, pos[parent.id].x, pnt));
+    hitRect.addEventListener('mouseleave', hideFluvialTooltip);
+    g.appendChild(hitRect);
+
+    // Outline: border on top and sides of body rect, plus leg outlines
+    const outlineRect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+    outlineRect.setAttribute('x', pnl); outlineRect.setAttribute('y', pnt);
+    outlineRect.setAttribute('width', pnr - pnl); outlineRect.setAttribute('height', NODE_H);
+    outlineRect.setAttribute('fill', 'none');
+    outlineRect.setAttribute('stroke', '#ccc8bc');
+    outlineRect.setAttribute('stroke-width', '1');
+    // Only draw top+sides, not bottom (legs continue from bottom)
+    // Use clip: draw rect stroke then overdraw bottom with body color
+    outlineRect.setAttribute('pointer-events', 'none');
+    g.appendChild(outlineRect);
+
+    // Cover the bottom edge of the outline rect with a fill line so legs appear contiguous
+    const bottomCover = document.createElementNS('http://www.w3.org/2000/svg','line');
+    bottomCover.setAttribute('x1', pnl); bottomCover.setAttribute('y1', pnb);
+    bottomCover.setAttribute('x2', pnr); bottomCover.setAttribute('y2', pnb);
+    bottomCover.setAttribute('stroke', '#f0ece3');
+    bottomCover.setAttribute('stroke-width', '1.5');
+    bottomCover.setAttribute('pointer-events', 'none');
+    g.appendChild(bottomCover);
+
+    // Draw highlight rect on hover over flow (on the child node)
+    legs.forEach(leg => {
+      const hoverPath = document.createElementNS('http://www.w3.org/2000/svg','path');
+      const ld = `M ${leg.cx0} ${leg.cy}` +
+                 ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
+                 ` L ${pnr} ${pnb}` +
+                 ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
+                 ` Z`;
+      hoverPath.setAttribute('d', ld);
+      hoverPath.setAttribute('fill', 'transparent');
+      hoverPath.setAttribute('stroke', 'none');
+      hoverPath.style.cursor = 'default';
+      hoverPath.addEventListener('mouseenter', () => {
+        hoverPath.setAttribute('fill', `${FLOW_COLOR}33`);
+        // Highlight morpheme region on child
         const hl = document.createElementNS('http://www.w3.org/2000/svg','rect');
         hl.id = 'fluvial-hl';
-        const nl  = nodeLeft(child);
-        const nt  = nodeTop(child);
-        hl.setAttribute('x',      nl + slice[0].x);
+        const nl = nodeLeft(leg.child);
+        const nt = nodeTop(leg.child);
+        hl.setAttribute('x',      leg.cx0);
         hl.setAttribute('y',      nt);
-        hl.setAttribute('width',  slice.reduce((s,c)=>s+c.w, 0));
+        hl.setAttribute('width',  leg.cx1 - leg.cx0);
         hl.setAttribute('height', NODE_H);
         hl.setAttribute('fill',   FLOW_COLOR);
-        hl.setAttribute('opacity','0.45');
+        hl.setAttribute('opacity','0.35');
         hl.setAttribute('pointer-events', 'none');
         g.appendChild(hl);
       });
-      path.addEventListener('mouseleave', () => {
-        path.setAttribute('opacity', '0.25');
+      hoverPath.addEventListener('mouseleave', () => {
+        hoverPath.setAttribute('fill', 'transparent');
         document.getElementById('fluvial-hl')?.remove();
       });
-
-      g.appendChild(path);
+      g.appendChild(hoverPath);
     });
   });
 
-  // ── Pass 2: node rectangles and text (always rendered) ──
+  // ── Pass 2: word text (always on top) ──
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
-    const nw = wordWidth(n.word);
-    const nl = nodeLeft(n);
-    const nt = nodeTop(n);
-
-    const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-    rect.setAttribute('x', nl); rect.setAttribute('y', nt);
-    rect.setAttribute('width', nw); rect.setAttribute('height', NODE_H);
-    rect.setAttribute('rx', 3);
-    rect.setAttribute('fill', '#f7f4ee');
-    rect.setAttribute('stroke', '#ccc8bc');
-    rect.setAttribute('stroke-width', '1');
-    g.appendChild(rect);
-
     const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
     txt.setAttribute('x', p.x);
     txt.setAttribute('y', p.y + FONT_SIZE * 0.35);
@@ -2424,6 +2547,7 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     txt.setAttribute('font-family', '"Cormorant Garamond",serif');
     txt.setAttribute('font-size', FONT_SIZE);
     txt.setAttribute('fill', '#1a1814');
+    txt.setAttribute('pointer-events', 'none');
     txt.textContent = n.word;
     g.appendChild(txt);
   });
