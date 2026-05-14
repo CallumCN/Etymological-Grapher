@@ -2272,7 +2272,7 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   const FILL_NORMAL = 'rgba(154,136,112,0.22)';
   const FILL_HOVER  = 'rgba(154,136,112,0.42)';
   const TEXT_NORMAL = '#1a1814';
-  const TEXT_HOVER  = '#9a8870';
+  const TEXT_HOVER  = '#5c3d0a';
 
   const measureEl = document.createElementNS('http://www.w3.org/2000/svg','text');
   measureEl.style.cssText = `font-family:"Cormorant Garamond",serif;font-size:${FONT_SIZE}px;visibility:hidden;`;
@@ -2344,14 +2344,20 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
 
   // ── Tooltip helper ──
   const tooltipEl = document.getElementById('graph-tooltip');
-  function showFluvialTooltip(n, svgX, svgY) {
+  function showFluvialTooltip(n, e) {
     document.getElementById('tt-word').textContent  = n.word;
     document.getElementById('tt-trans').textContent = n.transcription || '';
     document.getElementById('tt-gloss').textContent = n.meaning || '';
     const svgRect = svgEl.getBoundingClientRect();
-    tooltipEl.style.left = (bTx + svgX * bScale + 12) + 'px';
-    tooltipEl.style.top  = (bTy + svgY * bScale - 8)  + 'px';
+    tooltipEl.style.left = (e.clientX - svgRect.left + 14) + 'px';
+    tooltipEl.style.top  = (e.clientY - svgRect.top  - 8)  + 'px';
     tooltipEl.classList.add('visible');
+  }
+  function moveFluvialTooltip(e) {
+    if (!tooltipEl.classList.contains('visible')) return;
+    const svgRect = svgEl.getBoundingClientRect();
+    tooltipEl.style.left = (e.clientX - svgRect.left + 14) + 'px';
+    tooltipEl.style.top  = (e.clientY - svgRect.top  - 8)  + 'px';
   }
   function hideFluvialTooltip() { tooltipEl.classList.remove('visible'); }
 
@@ -2391,7 +2397,8 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
       rect.setAttribute('fill', FILL_NORMAL);
       rect.setAttribute('stroke', 'none');
       rect.style.cursor = 'default';
-      rect.addEventListener('mouseenter', () => showFluvialTooltip(parent, pos[parent.id].x, pnt));
+      rect.addEventListener('mouseenter', e => showFluvialTooltip(parent, e));
+      rect.addEventListener('mousemove',  e => moveFluvialTooltip(e));
       rect.addEventListener('mouseleave', hideFluvialTooltip);
       g.appendChild(rect);
       return;
@@ -2406,9 +2413,9 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     pathEl.setAttribute('stroke', 'none');
     pathEl.style.cursor = 'default';
 
-    pathEl.addEventListener('mouseenter', () => {
+    pathEl.addEventListener('mouseenter', e => {
       pathEl.setAttribute('fill', FILL_HOVER);
-      showFluvialTooltip(parent, pos[parent.id].x, pnt);
+      showFluvialTooltip(parent, e);
       legs.forEach(leg => {
         const spans = charEls[leg.child.id];
         if (!spans) return;
@@ -2417,6 +2424,7 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
         }
       });
     });
+    pathEl.addEventListener('mousemove', e => moveFluvialTooltip(e));
     pathEl.addEventListener('mouseleave', () => {
       pathEl.setAttribute('fill', FILL_NORMAL);
       hideFluvialTooltip();
