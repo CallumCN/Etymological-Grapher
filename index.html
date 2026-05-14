@@ -646,11 +646,23 @@ nav {
   z-index: 10;
 }
 
-/* Fluvial / Dot-wire view toggle buttons */
-.graph-overlay-dotswitch {
+/* Fluvial / Dot-wire view toggle buttons — flush pair */
+.graph-view-mode-btns {
+  position: absolute;
+  top: 0.75rem;
+  right: calc(0.75rem + 5.5rem + 0.5rem); /* recenter width + gap */
+  display: flex;
   z-index: 10;
 }
-.graph-overlay-dotswitch.active { background: var(--amber); color: var(--paper); border-color: var(--amber); }
+.graph-overlay-dotswitch,
+.graph-overlay-fluvial {
+  border-right: none;
+}
+.graph-overlay-fluvial {
+  border-right: 1px solid var(--paper-dark);
+}
+.graph-overlay-dotswitch.active,
+.graph-overlay-fluvial.active { background: var(--amber); color: var(--paper); border-color: var(--amber); }
 
 /* Morpheme character cells */
 .morph-char {
@@ -1058,8 +1070,10 @@ nav {
         <span id="sync-label">loading</span>
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
-      <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-dotswitch" onclick="setViewMode('dot')" style="position:absolute;top:0.75rem;right:13rem;">Dot & wire</button>
-      <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-fluvial" onclick="setViewMode('fluvial')" style="position:absolute;top:0.75rem;right:6.5rem;">Fluvial</button>
+      <div class="graph-view-mode-btns">
+        <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-dotswitch" onclick="setViewMode('dot')">Dot & wire</button>
+        <button class="graph-btn-sm graph-overlay-fluvial" id="btn-fluvial" onclick="setViewMode('fluvial')">Fluvial</button>
+      </div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
       <div class="graph-tooltip" id="graph-tooltip">
         <div class="tt-word" id="tt-word"></div>
@@ -2169,6 +2183,7 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   const NODE_W_PAD = 12;
   const NODE_H     = 32;
   const FONT_SIZE  = 15;
+  const FLOW_COLOR = '#9a8870';
 
   const measureEl = document.createElementNS('http://www.w3.org/2000/svg','text');
   measureEl.style.cssText = `font-family:"Cormorant Garamond",serif;font-size:${FONT_SIZE}px;visibility:hidden;`;
@@ -2183,7 +2198,6 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
   }
 
   function charInfos(word) {
-    // [{ch, x (relative to node left), w}]
     const chars = [...word];
     let cursor = NODE_W_PAD;
     return chars.map(ch => {
@@ -2195,20 +2209,21 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     });
   }
 
-  // Node geometry helpers
-  function nodeLeft(n)   { const p = pos[n.id]; return p.x - wordWidth(n.word) / 2; }
-  function nodeRight(n)  { return nodeLeft(n) + wordWidth(n.word); }
+  function nodeLeft(n)   { return pos[n.id].x - wordWidth(n.word) / 2; }
   function nodeTop(n)    { return pos[n.id].y - NODE_H / 2; }
   function nodeBottom(n) { return pos[n.id].y + NODE_H / 2; }
 
-  // ── Pass 1: draw flows (below nodes) ──
+  // Precompute charInfos per node (needed for highlight rects)
+  const charInfoCache = {};
+  nodes.forEach(n => { charInfoCache[n.id] = charInfos(n.word); });
+
+  // ── Pass 1: flows (only when both endpoints have morpheme data) ──
   nodes.forEach(child => {
     const ancestors = (child.ancestors || []).filter(aid => byId[aid]);
     if (!ancestors.length) return;
     const cp  = pos[child.id];
     if (!cp) return;
     const cnl = nodeLeft(child);
-    const cnw = wordWidth(child.word);
     const cTop = nodeTop(child);
 
     ancestors.forEach((ancId, ancIdx) => {
@@ -2216,59 +2231,74 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
       if (!parent) return;
       const pp   = pos[parent.id];
       if (!pp) return;
+
+      // Only draw flow if child has morpheme data for this ancestor
+      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
+      if (!cm) return;
+
+      // Child x-range from morpheme data
+      const ci   = charInfoCache[child.id];
+      const slice = ci.slice(cm.start, cm.end);
+      if (!slice.length) return;
+      const cx0 = cnl + slice[0].x;
+      const cx1 = cnl + slice[slice.length-1].x + slice[slice.length-1].w;
+
+      // Parent x-range: full parent width (river flows from entire parent into the morpheme)
       const pnl  = nodeLeft(parent);
       const pnw  = wordWidth(parent.word);
-      const pBot = nodeBottom(parent);
-
-      const color = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
-
-      // Parent x-range: use morpheme data if available, else full parent width
-      // (parent's contribution in the child's space is cm; parent itself is always full width at bottom)
-      let px0 = pnl, px1 = pnl + pnw;
-
-      // Child x-range: morpheme data if available, else proportional slice
-      let cx0, cx1;
-      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
-      if (cm) {
-        const ci = charInfos(child.word);
-        const slice = ci.slice(cm.start, cm.end);
-        if (slice.length) {
-          cx0 = cnl + slice[0].x;
-          cx1 = cnl + slice[slice.length-1].x + slice[slice.length-1].w;
-        }
-      }
-      if (cx0 === undefined) {
-        // Proportional fallback
-        const sliceW = cnw / Math.max(ancestors.length, 1);
-        cx0 = cnl + ancIdx * sliceW;
-        cx1 = cx0 + sliceW;
-      }
-
-      const py = pBot;
-      const cy = cTop;
-      const my = (py + cy) / 2;
+      const px0  = pnl;
+      const px1  = pnl + pnw;
+      const py   = nodeBottom(parent);
+      const cy   = cTop;
+      const my   = (py + cy) / 2;
 
       const path = document.createElementNS('http://www.w3.org/2000/svg','path');
-      path.setAttribute('d',
-        `M ${px0} ${py} C ${px0} ${my}, ${cx0} ${my}, ${cx0} ${cy}` +
-        ` L ${cx1} ${cy} C ${cx1} ${my}, ${px1} ${my}, ${px1} ${py} Z`
-      );
-      path.setAttribute('fill', color);
-      path.setAttribute('opacity', '0.4');
+      const d = `M ${px0} ${py} C ${px0} ${my}, ${cx0} ${my}, ${cx0} ${cy}` +
+                ` L ${cx1} ${cy} C ${cx1} ${my}, ${px1} ${my}, ${px1} ${py} Z`;
+      path.setAttribute('d', d);
+      path.setAttribute('fill', FLOW_COLOR);
+      path.setAttribute('opacity', '0.25');
       path.setAttribute('stroke', 'none');
+      path.setAttribute('cursor', 'default');
+      path.dataset.childId  = child.id;
+      path.dataset.ancId    = ancId;
+      path.dataset.start    = cm.start;
+      path.dataset.end      = cm.end;
+
+      // Hover: highlight child morpheme region
+      path.addEventListener('mouseenter', () => {
+        path.setAttribute('opacity', '0.5');
+        // Show highlight rect on child node
+        const hl = document.createElementNS('http://www.w3.org/2000/svg','rect');
+        hl.id = 'fluvial-hl';
+        const nl  = nodeLeft(child);
+        const nt  = nodeTop(child);
+        hl.setAttribute('x',      nl + slice[0].x);
+        hl.setAttribute('y',      nt);
+        hl.setAttribute('width',  slice.reduce((s,c)=>s+c.w, 0));
+        hl.setAttribute('height', NODE_H);
+        hl.setAttribute('fill',   FLOW_COLOR);
+        hl.setAttribute('opacity','0.45');
+        hl.setAttribute('pointer-events', 'none');
+        g.appendChild(hl);
+      });
+      path.addEventListener('mouseleave', () => {
+        path.setAttribute('opacity', '0.25');
+        document.getElementById('fluvial-hl')?.remove();
+      });
+
       g.appendChild(path);
     });
   });
 
-  // ── Pass 2: draw node rectangles and text (above flows) ──
+  // ── Pass 2: node rectangles and text (always rendered) ──
   nodes.forEach(n => {
     const p = pos[n.id];
     if (!p) return;
-    const nw  = wordWidth(n.word);
-    const nl  = nodeLeft(n);
-    const nt  = nodeTop(n);
+    const nw = wordWidth(n.word);
+    const nl = nodeLeft(n);
+    const nt = nodeTop(n);
 
-    // Background
     const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
     rect.setAttribute('x', nl); rect.setAttribute('y', nt);
     rect.setAttribute('width', nw); rect.setAttribute('height', NODE_H);
@@ -2278,26 +2308,6 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     rect.setAttribute('stroke-width', '1');
     g.appendChild(rect);
 
-    // Morpheme colour regions
-    if (n.morphemes?.length) {
-      const ci = charInfos(n.word);
-      n.morphemes.forEach(m => {
-        const ancIdx = (n.ancestors||[]).indexOf(m.ancestorId);
-        if (ancIdx < 0) return;
-        const color  = ANCESTOR_COLORS[ancIdx % ANCESTOR_COLORS.length];
-        const slice  = ci.slice(m.start, m.end);
-        if (!slice.length) return;
-        const rx = nl + slice[0].x;
-        const rw = slice.reduce((s, c) => s + c.w, 0);
-        const mr = document.createElementNS('http://www.w3.org/2000/svg','rect');
-        mr.setAttribute('x', rx); mr.setAttribute('y', nt);
-        mr.setAttribute('width', rw); mr.setAttribute('height', NODE_H);
-        mr.setAttribute('fill', color); mr.setAttribute('opacity', '0.25');
-        g.appendChild(mr);
-      });
-    }
-
-    // Text
     const txt = document.createElementNS('http://www.w3.org/2000/svg','text');
     txt.setAttribute('x', p.x);
     txt.setAttribute('y', p.y + FONT_SIZE * 0.35);
@@ -2644,12 +2654,12 @@ function renderGraph(focusId, subgraph) {
     sgSaveTimeout = setTimeout(() => saveSubgraphToCloud(subgraph), 1000);
   }
 
+  // Set SVG dimensions early — needed for both dot-wire and fluvial
+  d3.select(svgEl).attr('width', W).attr('height', H);
+
   // If fluvial mode, use the fluvial renderer instead of the D3 graph
   if (graphViewMode === 'fluvial') {
     svgEl.removeChild(_measureEl);
-    svg.attr('width', W).attr('height', H);
-    tx = 0; ty = 0; scale = 1;
-    // Fit to view for braided
     const xs = nodes.map(n => pos[n.id].x);
     const ys = nodes.map(n => pos[n.id].y);
     const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 120;
@@ -2669,7 +2679,7 @@ function renderGraph(focusId, subgraph) {
   let ghost = null;
 
   // ── SVG setup ──
-  const svg = d3.select(svgEl).attr('width', W).attr('height', H);
+  const svg = d3.select(svgEl); // dimensions already set above
 
   // Current transform state — managed manually so wheel zoom never conflicts with drag
   // tx/ty/scale are module-scoped so handleGraphDrop can use them for coordinate conversion
