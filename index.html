@@ -1073,6 +1073,7 @@ nav {
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
       <button class="graph-btn-sm" id="btn-wordinfo" onclick="toggleWordInfo()" style="position:absolute;top:0.75rem;right:6.5rem;z-index:10;">Word info</button>
+      <button class="graph-btn-sm" onclick="redrawLayout()" style="position:absolute;top:0.75rem;right:13rem;z-index:10;">Redraw</button>
       <div class="graph-view-mode-btns">
 </div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
@@ -2241,6 +2242,287 @@ function toggleWordInfo() {
   }
 }
 
+// ─── FULL LAYOUT ALGORITHM ────────────────────────────────────────────────
+// Implements the algorithm described in the design document:
+// Phase 1: DFS rank ordering
+// Phase 2: Child-group M-value formula (upward), parent-pull formula (downward)
+// Phase 3: Iterative top-down/bottom-up relaxation
+// Phase 4: Aspect ratio correction
+
+function computeFullLayout(nodes) {
+  if (!nodes.length) return {};
+
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+
+  // Build parent/child maps (only within visible nodes)
+  const parents = {}, children = {};
+  nodes.forEach(n => {
+    parents[n.id] = (n.ancestors||[]).filter(a => byId[a]);
+    children[n.id] = [];
+  });
+  nodes.forEach(n => parents[n.id].forEach(pid => children[pid].push(n.id)));
+
+  // ── Depth via longest path ──
+  const depth = {};
+  function getDepth(id) {
+    if (depth[id] !== undefined) return depth[id];
+    const ps = parents[id];
+    depth[id] = ps.length ? Math.max(...ps.map(getDepth)) + 1 : 0;
+    return depth[id];
+  }
+  nodes.forEach(n => getDepth(n.id));
+
+  const layers = {};
+  nodes.forEach(n => { const d = depth[n.id]; (layers[d]=layers[d]||[]).push(n.id); });
+  const sortedDepths = Object.keys(layers).map(Number).sort((a,b)=>a-b);
+  const maxDepth = sortedDepths[sortedDepths.length-1]||0;
+
+  // Node pixel half-width (using existing labelPx which requires a measurement element)
+  // We use a canvas for measurement here since we're outside renderGraph
+  const _canvas = document.createElement('canvas');
+  const _ctx = _canvas.getContext('2d');
+  _ctx.font = '15px "Cormorant Garamond", serif';
+  function nw(id) {
+    const word = byId[id]?.word || '';
+    return (_ctx.measureText(word).width + 12) / 2; // half-width (6px pad each side)
+  }
+  function nodeGap() { return 3; } // PAD
+
+  // M value: (parentOrder - 1) / (numParents - 1), or 0.5 if only one parent
+  function mValue(childId, parentId) {
+    const ps = parents[childId];
+    if (ps.length <= 1) return 0.5;
+    const idx = ps.indexOf(parentId);
+    return idx < 0 ? 0.5 : idx / (ps.length - 1);
+  }
+
+  // ── Phase 1: DFS rank ──
+  // Traverse from roots, visiting children in M-value order (low M = leftward = first)
+  const dfsRank = {};
+  let dfsCounter = 0;
+
+  const roots = nodes.filter(n => parents[n.id].length === 0);
+  // Order roots by subtree centroid (bottom-up natural x)
+  const natural = {};
+  for (let d = maxDepth; d >= 0; d--) {
+    (layers[d]||[]).forEach(id => {
+      const ch = children[id];
+      natural[id] = ch.length
+        ? ch.reduce((s,c)=>s+(natural[c]??0),0)/ch.length
+        : dfsCounter++;
+    });
+  }
+  roots.sort((a,b) => (natural[a]||0)-(natural[b]||0));
+
+  const dfsVisited = new Set();
+  function dfs(id) {
+    if (dfsVisited.has(id)) return;
+    dfsVisited.add(id);
+    dfsRank[id] = dfsCounter++;
+    // Sort children by their M value for this parent (lower M = more left = first)
+    const ch = [...children[id]];
+    ch.sort((a,b) => mValue(a,id) - mValue(b,id));
+    ch.forEach(c => dfs(c));
+  }
+  roots.forEach(r => dfs(r));
+  // Visit any unvisited nodes (disconnected)
+  nodes.forEach(n => { if (dfsRank[n.id]===undefined) dfs(n.id); });
+
+  // ── Phase 2: initial X positions ──
+  const ROW_H = 80, padX = 30, padY = 40;
+  const pos = {};
+
+  // Find anchor level (most nodes)
+  const anchorDepth = sortedDepths.reduce((best,d) =>
+    (layers[d].length > (layers[best]||[]).length) ? d : best, sortedDepths[0]);
+
+  // Place anchor level: sort by DFS rank, pack flush with gaps
+  const anchorIds = [...layers[anchorDepth]].sort((a,b)=>dfsRank[a]-dfsRank[b]);
+  let cursor = padX;
+  anchorIds.forEach(id => {
+    pos[id] = { x: cursor + nw(id), y: padY + anchorDepth * ROW_H };
+    cursor += 2*nw(id) + nodeGap()*2;
+  });
+
+  // Sweep: resolve overlaps on a layer (modifies pos in place)
+  function resolveLayer(ids) {
+    const sorted = [...ids].sort((a,b) => pos[a].x - pos[b].x);
+    // Left-to-right pass
+    for (let i = 1; i < sorted.length; i++) {
+      const minX = pos[sorted[i-1]].x + nw(sorted[i-1]) + nodeGap() + nw(sorted[i]);
+      if (pos[sorted[i]].x < minX) pos[sorted[i]].x = minX;
+    }
+    // Right-to-left pass
+    for (let i = sorted.length-2; i >= 0; i--) {
+      const maxX = pos[sorted[i+1]].x - nw(sorted[i+1]) - nodeGap() - nw(sorted[i]);
+      if (pos[sorted[i]].x > maxX) pos[sorted[i]].x = maxX;
+    }
+  }
+
+  // Upward from anchor: child-group M-value formula
+  for (let d = anchorDepth-1; d >= 0; d--) {
+    const ids = layers[d]||[];
+    ids.forEach(id => {
+      if (!children[id].length || !children[id].some(c => pos[c])) {
+        pos[id] = { x: padX + dfsRank[id]*20, y: padY + d*ROW_H };
+        return;
+      }
+      // Group children by M value
+      const placed = children[id].filter(c => pos[c]);
+      const mGroups = {};
+      placed.forEach(c => {
+        const m = mValue(c, id);
+        (mGroups[m] = mGroups[m]||[]).push(c);
+      });
+      let totalWeight = 0, weightedX = 0;
+      Object.entries(mGroups).forEach(([m, group]) => {
+        const xs = group.map(c => pos[c].x);
+        const mn = Math.min(...xs), mx = Math.max(...xs);
+        const gx = mn + Number(m) * (mx - mn);
+        weightedX += gx * group.length;
+        totalWeight += group.length;
+      });
+      pos[id] = { x: weightedX / totalWeight, y: padY + d*ROW_H };
+    });
+    resolveLayer(ids.filter(id => pos[id]));
+  }
+
+  // Downward from anchor: parent-pull formula
+  for (let d = anchorDepth+1; d <= maxDepth; d++) {
+    const ids = layers[d]||[];
+    ids.forEach(id => {
+      const ps = parents[id].filter(p => pos[p]);
+      if (!ps.length) { pos[id] = { x: padX + dfsRank[id]*20, y: padY + d*ROW_H }; return; }
+      // Pull from parents using M value: parent.x + (m-0.5)*spread
+      let pulls = 0, pullSum = 0;
+      ps.forEach(pid => {
+        const m = mValue(id, pid);
+        pullSum += pos[pid].x + (m - 0.5) * 40;
+        pulls++;
+      });
+      pos[id] = { x: pullSum / pulls, y: padY + d*ROW_H };
+    });
+    resolveLayer(ids.filter(id => pos[id]));
+  }
+
+  // Ensure all nodes have a position
+  nodes.forEach(n => {
+    if (!pos[n.id]) pos[n.id] = { x: padX + dfsRank[n.id]*20, y: padY + depth[n.id]*ROW_H };
+  });
+
+  // ── Phase 3: iterative relaxation ──
+  for (let iter = 0; iter < 8; iter++) {
+    let maxDelta = 0;
+
+    // Top-down: pull each node toward weighted average of parents
+    for (let d = 1; d <= maxDepth; d++) {
+      const ids = layers[d]||[];
+      const ideal = {};
+      ids.forEach(id => {
+        const ps = parents[id].filter(p => pos[p]);
+        if (!ps.length) return;
+        let wx = 0, w = 0;
+        ps.forEach(pid => {
+          const m = mValue(id, pid);
+          wx += (pos[pid].x + (m-0.5)*40) * 1;
+          w++;
+        });
+        ideal[id] = wx / w;
+      });
+      ids.forEach(id => {
+        if (ideal[id] === undefined) return;
+        const prev = pos[id].x;
+        pos[id].x = pos[id].x * 0.5 + ideal[id] * 0.5; // blend toward ideal
+        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
+      });
+      resolveLayer(ids);
+    }
+
+    // Bottom-up: pull each node toward child-group centroid
+    for (let d = maxDepth-1; d >= 0; d--) {
+      const ids = layers[d]||[];
+      const ideal = {};
+      ids.forEach(id => {
+        const placed = children[id].filter(c => pos[c]);
+        if (!placed.length) return;
+        const mGroups = {};
+        placed.forEach(c => {
+          const m = mValue(c, id);
+          (mGroups[m] = mGroups[m]||[]).push(c);
+        });
+        let totalWeight = 0, weightedX = 0;
+        Object.entries(mGroups).forEach(([m, group]) => {
+          const xs = group.map(c => pos[c].x);
+          const mn = Math.min(...xs), mx = Math.max(...xs);
+          const gx = mn + Number(m) * (mx - mn);
+          weightedX += gx * group.length;
+          totalWeight += group.length;
+        });
+        ideal[id] = weightedX / totalWeight;
+      });
+      ids.forEach(id => {
+        if (ideal[id] === undefined) return;
+        const prev = pos[id].x;
+        pos[id].x = pos[id].x * 0.5 + ideal[id] * 0.5;
+        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
+      });
+      resolveLayer(ids);
+    }
+
+    if (maxDelta < 0.5) break; // converged
+  }
+
+  // ── Phase 4: aspect ratio correction ──
+  const xs = nodes.map(n => pos[n.id].x);
+  const ys = nodes.map(n => pos[n.id].y);
+  const w = Math.max(...xs) - Math.min(...xs);
+  const h = Math.max(...ys) - Math.min(...ys);
+  if (h > 0 && w/h > 2.5) {
+    const s = (2.5 * h) / w;
+    const cx = (Math.max(...xs) + Math.min(...xs)) / 2;
+    nodes.forEach(n => { pos[n.id].x = cx + (pos[n.id].x - cx) * s; });
+    // Final overlap resolve after compression
+    sortedDepths.forEach(d => resolveLayer(layers[d]||[]));
+  }
+
+  return pos;
+}
+
+function redrawLayout() {
+  // Determine current node set
+  let nodes;
+  if (activeSubgraphId) {
+    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+    nodes = DB.filter(n => sg?.nodeIds.includes(n.id));
+  } else {
+    nodes = [...DB];
+  }
+  if (!nodes.length) return;
+
+  const newPos = computeFullLayout(nodes);
+
+  // Re-render with new positions by clearing saved subgraph positions
+  // and re-running renderGraph which will use the new layout
+  if (activeSubgraphId) {
+    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+    if (sg) {
+      sg.positions = {};
+      Object.entries(newPos).forEach(([id, p]) => { sg.positions[id] = p; });
+      renderSubgraph(sg);
+      scheduleSubgraphSave && scheduleSubgraphSave();
+    }
+  } else {
+    // For the full lexicon view, store positions temporarily so renderGraph uses them
+    _pendingLayout = newPos;
+    renderGraph(null);
+    _pendingLayout = null;
+  }
+}
+
+// Temporary storage for redraw layout positions
+let _pendingLayout = null;
+
 // ─── GRAPH ────────────────────────────────
 let focusedVisible = null;
 
@@ -2578,11 +2860,12 @@ function renderGraph(focusId, subgraph) {
   const padX = 30, padY = 40;
   const pos = {};  // mutable; updated by drag
   nodes.forEach(n => {
-    // Use saved positions for subgraph nodes if available
-    const saved = subgraph?.positions?.[n.id];
-    pos[n.id] = saved
-      ? { x: saved.x, y: saved.y }
-      : { x: padX + (xRank[n.id]||0) * colW, y: padY + depth[n.id] * ROW_H };
+    // Priority: pending layout > saved subgraph positions > computed layout
+    const pending = _pendingLayout?.[n.id];
+    const saved   = subgraph?.positions?.[n.id];
+    pos[n.id] = pending ? { x: pending.x, y: pending.y }
+              : saved   ? { x: saved.x,   y: saved.y   }
+              : { x: padX + (xRank[n.id]||0) * colW, y: padY + depth[n.id] * ROW_H };
   });
 
   // Helper to persist subgraph positions after any move
