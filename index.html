@@ -646,6 +646,8 @@ nav {
   z-index: 10;
 }
 
+#btn-wordinfo.active { background: var(--amber); color: var(--paper); border-color: var(--amber); }
+
 /* Fluvial / Dot-wire view toggle buttons — flush pair */
 .graph-view-mode-btns {
   position: absolute;
@@ -1070,6 +1072,7 @@ nav {
         <span id="sync-label">loading</span>
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
+      <button class="graph-btn-sm" id="btn-wordinfo" onclick="toggleWordInfo()" style="position:absolute;top:0.75rem;right:6.5rem;z-index:10;">Word info</button>
       <div class="graph-view-mode-btns">
 </div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
@@ -2223,6 +2226,20 @@ function reorderAncestorsByMorphemes(wordLen) {
 // ─── FLUVIAL VIEW ────────────────────────────────────────────────────────
 // fluvial is now the only view mode
 const graphViewMode = 'fluvial';
+let showWordInfo = false;
+
+function toggleWordInfo() {
+  showWordInfo = !showWordInfo;
+  document.getElementById('btn-wordinfo').classList.toggle('active', showWordInfo);
+  if (currentView === 'lexicon' || currentView === 'graph') {
+    if (activeSubgraphId) {
+      const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+      renderSubgraph(sg);
+    } else {
+      renderGraph(null);
+    }
+  }
+}
 
 // ─── GRAPH ────────────────────────────────
 let focusedVisible = null;
@@ -2727,6 +2744,22 @@ function renderGraph(focusId, subgraph) {
 
     const NODE_H    = 32;
     const NODE_W_PAD  = 6;
+    const INFO_FONT   = 10; // px, same as tooltip
+    const INFO_PAD    = 5;  // px padding between word text baseline and info text
+    const INFO_LINE_H = 13; // px per info line
+
+    // Extra height added to rect bottom when word info is shown
+    function nodeInfoLines(n) {
+      if (!showWordInfo) return [];
+      const lines = [];
+      if (n.transcription) lines.push({ text: n.transcription, color: '#b87c1a' });
+      if (n.meaning)       lines.push({ text: n.meaning,       color: '#8a8680' });
+      return lines;
+    }
+    function nodeInfoHeight(n) {
+      const lines = nodeInfoLines(n);
+      return lines.length ? INFO_PAD + lines.length * INFO_LINE_H : 0;
+    }
 
     // Use the module-level _measureEl for text measurement
     function wordWidthF(word) {
@@ -2743,7 +2776,8 @@ function renderGraph(focusId, subgraph) {
     }
     function nodeLeftF(n)   { return pos[n.id].x - wordWidthF(n.word) / 2; }
     function nodeTopF(n)    { return pos[n.id].y - NODE_H / 2; }
-    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2; }
+    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2 + nodeInfoHeight(n); }
+    function nodeFullH(n)   { return NODE_H + nodeInfoHeight(n); }
 
     // Measure all char infos
     const ciCache = {};
@@ -2794,7 +2828,7 @@ function renderGraph(focusId, subgraph) {
       // Rect (always drawn, separate from flow shape)
       gFluvial.append('rect')
         .attr('x',pnl).attr('y',pnt)
-        .attr('width',pnr-pnl).attr('height',NODE_H)
+        .attr('width',pnr-pnl).attr('height',nodeFullH(parent))
         .attr('fill', FILL_NORMAL)
         .attr('stroke','none')
         .attr('class','fluvial-rect')
@@ -2845,6 +2879,7 @@ function renderGraph(focusId, subgraph) {
     nodes.forEach(n => {
       const p = pos[n.id]; if (!p) return;
       const ci = ciCache[n.id], nl = nodeLeftF(n);
+      const cx = nl + wordWidthF(n.word) / 2; // centre x of node
       ci.forEach((info, idx) => {
         gFluvial.append('text')
           .attr('x', nl+info.x+info.w/2).attr('y', p.y+FONT_SIZE_F*0.35)
@@ -2857,6 +2892,25 @@ function renderGraph(focusId, subgraph) {
           .attr('data-id', n.id)
           .text(info.ch);
       });
+
+      // Word info lines (transcription + meaning) below word text
+      if (showWordInfo) {
+        const infoLines = nodeInfoLines(n);
+        const baseY = p.y + NODE_H / 2 + INFO_PAD + INFO_LINE_H * 0.85;
+        infoLines.forEach((line, i) => {
+          gFluvial.append('text')
+            .attr('x', cx)
+            .attr('y', baseY + i * INFO_LINE_H)
+            .attr('text-anchor', 'middle')
+            .attr('font-family', '"DM Mono",monospace')
+            .attr('font-size', INFO_FONT)
+            .attr('fill', line.color)
+            .attr('pointer-events', 'none')
+            .attr('class', 'fluvial-info')
+            .attr('data-id', n.id)
+            .text(line.text);
+        });
+      }
     });
 
     // Mark child-contribution chars separately for per-char hover highlighting
@@ -3125,7 +3179,7 @@ function renderGraph(focusId, subgraph) {
         document.getElementById('tt-trans').textContent = d.transcription;
         document.getElementById('tt-gloss').textContent = d.meaning;
         Object.assign(tooltip.style, { left:(mx+14)+'px', top:(my-8)+'px' });
-        tooltip.classList.toggle('visible', !graphDragging);
+        tooltip.classList.toggle('visible', !graphDragging && !showWordInfo);
         if (!ghost || !ghost.pinned) showGhost(d.id, false);
         svgEl.dataset.hoveredNode = d.id;
         hoveredIds.add(d.id);
