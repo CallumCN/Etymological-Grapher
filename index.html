@@ -2753,16 +2753,46 @@ function renderGraph(focusId, subgraph) {
     const INFO_FONT   = 10;  // px
     const INFO_LINE_H = 13;  // px per info line
 
-    // Info lines for a node (empty when toggle is off)
-    function nodeInfoLines(n) {
-      if (!showWordInfo) return [];
+    const INFO_MAX_W  = 200; // world units — matches tooltip 240px at typical zoom
+
+    // Word-wrap a string to fit within INFO_MAX_W, returns array of line strings
+    function wrapInfoText(text) {
+      const words = text.split(' ');
       const lines = [];
-      if (n.transcription) lines.push({ text: n.transcription, color: '#b87c1a' });
-      if (n.meaning)       lines.push({ text: n.meaning,       color: '#8a8680' });
+      let current = '';
+      words.forEach(word => {
+        const test = current ? current + ' ' + word : word;
+        _infoMeasureCollide.textContent = test;
+        if (_infoMeasureCollide.getBBox().width > INFO_MAX_W && current) {
+          lines.push(current);
+          current = word;
+        } else {
+          current = test;
+        }
+      });
+      if (current) lines.push(current);
       return lines;
     }
 
-    // Measure info text width using the shared _infoMeasureCollide element
+    // Expand nodeInfoLines to include wrapped sub-lines
+    function nodeInfoLinesWrapped(n) {
+      if (!showWordInfo) return [];
+      const result = [];
+      if (n.transcription) {
+        wrapInfoText(n.transcription).forEach(l =>
+          result.push({ text: l, color: '#b87c1a' }));
+      }
+      if (n.meaning) {
+        wrapInfoText(n.meaning).forEach(l =>
+          result.push({ text: l, color: '#8a8680' }));
+      }
+      return result;
+    }
+
+    // nodeInfoLines: wrapped lines used for width measurement and collision
+    function nodeInfoLines(n) { return nodeInfoLinesWrapped(n); }
+
+    // Measure max info text width (capped at INFO_MAX_W)
     function infoWidth(n) {
       if (!showWordInfo) return 0;
       const lines = nodeInfoLines(n);
@@ -2770,7 +2800,7 @@ function renderGraph(focusId, subgraph) {
       let maxW = 0;
       lines.forEach(l => {
         _infoMeasureCollide.textContent = l.text;
-        maxW = Math.max(maxW, _infoMeasureCollide.getBBox().width);
+        maxW = Math.max(maxW, Math.min(_infoMeasureCollide.getBBox().width, INFO_MAX_W));
       });
       return INFO_GAP + maxW;
     }
@@ -2909,12 +2939,12 @@ function renderGraph(focusId, subgraph) {
 
       // Word info lines to the right of the rectangle, vertically centred
       if (showWordInfo) {
-        const infoLines = nodeInfoLines(n);
-        if (infoLines.length) {
+        const wrappedLines = nodeInfoLinesWrapped(n);
+        if (wrappedLines.length) {
           const rectRight = nl + wordWidthF(n.word);
-          const totalH    = infoLines.length * INFO_LINE_H;
+          const totalH    = wrappedLines.length * INFO_LINE_H;
           const startY    = p.y - totalH / 2 + INFO_LINE_H * 0.75;
-          infoLines.forEach((line, i) => {
+          wrappedLines.forEach((line, i) => {
             gFluvial.append('text')
               .attr('x', rectRight + INFO_GAP)
               .attr('y', startY + i * INFO_LINE_H)
