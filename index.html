@@ -716,7 +716,7 @@ nav {
 .graph-btn-sm:hover { background: var(--paper-mid); }
 .graph-btn-sm + .graph-btn-sm { margin-left: 0; }
 
-#graph-svg { flex: 1; width: 100%; }
+#graph-svg { flex: 1; width: 100%; user-select: none; }
 
 .form-view {
   padding: 2rem 3rem;
@@ -2917,56 +2917,47 @@ function renderGraph(focusId, subgraph) {
   const hoveredIds     = new Set();
   const hoveredFlowIds = new Set();
 
-  function applyFluvialAppearance() {
+  function applyFluvialAppearance(pendingIds) {
     if (graphViewMode !== 'fluvial') return;
 
-    const FILL_SEL      = 'rgba(184,124,26,0.38)'; // unified amber for both rect and flow
-    const FILL_HOV      = 'rgba(154,136,112,0.38)'; // unified grey hover for both
+    const FILL_SEL  = 'rgba(184,124,26,0.38)';
+    const FILL_HOV  = 'rgba(154,136,112,0.38)';
 
     const affectedSelected = new Set();
     hoveredIds.forEach(id => { if (selected.has(id)) selected.forEach(s => affectedSelected.add(s)); });
 
+    // Treat pending (rubber-band preview) same as selected for colour purposes
+    function isActive(id) { return selected.has(id) || (pendingIds && pendingIds.has(id)); }
+
     gFluvial.selectAll('.fluvial-rect').each(function() {
-      const id = this.getAttribute('data-id');
-      const isSel     = selected.has(id);
-      const isHovered = !isSel && (hoveredIds.has(id) || affectedSelected.has(id));
+      const id      = this.getAttribute('data-id');
+      const isSel   = isActive(id);
+      const isHov   = !isSel && (hoveredIds.has(id) || affectedSelected.has(id));
       d3.select(this).attr('fill',
-        isSel     ? FILL_SEL :
-        isHovered ? FILL_HOV :
-                    FILL_NORMAL);
+        isSel ? FILL_SEL : isHov ? FILL_HOV : FILL_NORMAL);
     });
 
     gFluvial.selectAll('.fluvial-shape').each(function() {
-      const id = this.getAttribute('data-id');
-      const isSel     = selected.has(id);
+      const id        = this.getAttribute('data-id');
+      const isSel     = isActive(id);
       const isHovFlow = !isSel && (hoveredFlowIds.has(id) ||
                         (affectedSelected.has(id) && hoveredFlowIds.size > 0));
       d3.select(this).attr('fill',
-        isSel     ? FILL_SEL :   // selected: stays amber even on hover
-        isHovFlow ? FILL_HOV :   // unselected flow hover: grey
-                    FILL_NORMAL);
+        isSel ? FILL_SEL : isHovFlow ? FILL_HOV : FILL_NORMAL);
     });
 
-    // Own text: amber only when selected
     gFluvial.selectAll('.fluvial-text').each(function() {
-      const id    = this.getAttribute('data-id');
-      const isSel = selected.has(id);
-      d3.select(this).attr('fill', isSel ? TEXT_HOVER_F : TEXT_NORMAL_F);
+      const id = this.getAttribute('data-id');
+      d3.select(this).attr('fill', isActive(id) ? TEXT_HOVER_F : TEXT_NORMAL_F);
     });
 
-    // Child text: amber when parent is selected or flow-hovered
     gFluvial.selectAll('.fluvial-child-text').each(function() {
       const childId = this.getAttribute('data-child');
       const charIdx = +this.getAttribute('data-char');
       let highlight = false;
       nodes.forEach(parent => {
-        const legs = outgoing[parent.id];
-        if (!legs) return;
-        const isSel     = selected.has(parent.id);
-        const isHovFlow = !isSel && (hoveredFlowIds.has(parent.id) ||
-                          (affectedSelected.has(parent.id) && hoveredFlowIds.size > 0));
-        if (!isSel && !isHovFlow) return;
-        legs.forEach(leg => {
+        if (!isActive(parent.id) && !hoveredFlowIds.has(parent.id)) return;
+        (outgoing[parent.id] || []).forEach(leg => {
           if (leg.child.id === childId && charIdx >= leg.cm.start && charIdx < leg.cm.end)
             highlight = true;
         });
@@ -3096,7 +3087,7 @@ function renderGraph(focusId, subgraph) {
         tooltipEl.style.left = (e.clientX-svgRect.left+14)+'px';
         tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
         tooltipEl.classList.add('visible');
-        applyFluvialAppearance();
+        applyFluvialAppearance(null);
       });
       pathEl.on('mousemove', function(e) {
         const svgRect = svgEl.getBoundingClientRect();
@@ -3108,7 +3099,7 @@ function renderGraph(focusId, subgraph) {
         hoveredFlowIds.delete(parent.id);
         if (selected.has(parent.id)) selected.forEach(id => { hoveredIds.delete(id); hoveredFlowIds.delete(id); });
         tooltipEl.classList.remove('visible');
-        applyFluvialAppearance();
+        applyFluvialAppearance(null);
       });
     });
 
@@ -3179,7 +3170,7 @@ function renderGraph(focusId, subgraph) {
       });
     });
 
-    applyFluvialAppearance();
+    applyFluvialAppearance(null);
   }
 
   redrawEdges();
@@ -3197,16 +3188,7 @@ function renderGraph(focusId, subgraph) {
 
   function updateNodeAppearance(pendingIds) {
     if (graphViewMode === 'fluvial') {
-      // Pending: rubber-band preview — show as lightly highlighted
-      if (pendingIds) {
-        gFluvial.selectAll('.fluvial-rect,.fluvial-shape').each(function() {
-          const id = this.getAttribute('data-id');
-          if (pendingIds.has(id) && !selected.has(id)) {
-            d3.select(this).attr('fill', 'rgba(184,124,26,0.22)');
-          }
-        });
-      }
-      applyFluvialAppearance();
+      applyFluvialAppearance(pendingIds);
       return;
     }
     gNodes.selectAll('g.node-grp').each(function(d) {
@@ -3279,7 +3261,7 @@ function renderGraph(focusId, subgraph) {
         // Clear hover state so dragged nodes show selection color, not hover color
         hoveredIds.clear();
         hoveredFlowIds.clear();
-        if (graphViewMode === 'fluvial') applyFluvialAppearance();
+        if (graphViewMode === 'fluvial') applyFluvialAppearance(null);
         // Snapshot y of each selected node
         dragStartY = {};
         selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
@@ -3429,7 +3411,7 @@ function renderGraph(focusId, subgraph) {
         if (graphViewMode === 'fluvial') {
           hoveredIds.add(d.id);
           if (selected.has(d.id)) selected.forEach(id => hoveredIds.add(id));
-          applyFluvialAppearance();
+          applyFluvialAppearance(null);
         }
       })
       .on('mousemove', e => {
@@ -3443,7 +3425,7 @@ function renderGraph(focusId, subgraph) {
         if (graphViewMode === 'fluvial') {
           hoveredIds.delete(d.id);
           if (selected.has(d.id)) selected.forEach(id => hoveredIds.delete(id));
-          applyFluvialAppearance();
+          applyFluvialAppearance(null);
         }
       })
       .on('dblclick', (e, d) => {
