@@ -2489,36 +2489,17 @@ function computeFullLayout(nodes) {
 }
 
 function redrawLayout() {
-  let nodes;
-  if (activeSubgraphId) {
-    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
-    nodes = DB.filter(n => sg?.nodeIds.includes(n.id));
-  } else {
-    nodes = [...DB];
-  }
-  if (!nodes.length) return;
-
-  const newPos = computeFullLayout(nodes);
-  console.log('[redrawLayout] computed', Object.keys(newPos).length, 'positions, sample x:',
-    Object.values(newPos).slice(0,3).map(p=>Math.round(p.x)));
-
   if (activeSubgraphId) {
     const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
     if (sg) {
       sg.positions = {};
-      Object.entries(newPos).forEach(([id, p]) => { sg.positions[id] = { x: p.x, y: p.y }; });
       renderSubgraph(sg);
-      saveSubgraphToCloud(sg); // save new positions to Supabase
+      saveSubgraphToCloud(sg);
     }
   } else {
-    _pendingLayout = newPos;
     renderGraph(null);
-    _pendingLayout = null;
   }
 }
-
-// Temporary storage for redraw layout positions
-let _pendingLayout = null;
 
 // ─── GRAPH ────────────────────────────────
 let focusedVisible = null;
@@ -2653,98 +2634,6 @@ function buildLinks(nodes) {
 //   a root whose subtree lies to the left of another root's subtree is
 //   placed to its left — fixing the alphabetical-sort bug.
 // ─────────────────────────────────────────────────────────────────────────────
-function computeLayout(nodes) {
-  const byId = {};
-  nodes.forEach(n => { byId[n.id] = n; });
-
-  // parents[id] = [ancestor0, ancestor1] filtered to visible nodes
-  const parents = {};
-  nodes.forEach(n => { parents[n.id] = (n.ancestors||[]).filter(a => byId[a]); });
-
-  // children[id] = list of visible children
-  const children = {};
-  nodes.forEach(n => { children[n.id] = []; });
-  nodes.forEach(n => parents[n.id].forEach(pid => children[pid].push(n.id)));
-
-  // ── Depth via longest path ──
-  const depth = {}, depthMemo = new Set();
-  function getDepth(id) {
-    if (depth[id] !== undefined) return depth[id];
-    if (depthMemo.has(id)) { depth[id] = 0; return 0; }
-    depthMemo.add(id);
-    const ps = parents[id];
-    depth[id] = ps.length ? Math.max(...ps.map(getDepth)) + 1 : 0;
-    return depth[id];
-  }
-  nodes.forEach(n => getDepth(n.id));
-
-  const layers = {};
-  nodes.forEach(n => { const d = depth[n.id]; (layers[d] = layers[d]||[]).push(n.id); });
-  const sortedDepths = Object.keys(layers).map(Number).sort((a,b) => a-b);
-  const maxDepth = sortedDepths[sortedDepths.length - 1] || 0;
-
-  // ── Pass 1: bottom-up natural x ──
-  // Leaves (no visible children) get sequential integers left-to-right
-  // sorted alphabetically within each bottom layer.
-  const natural = {};
-  let leafSlot = 0;
-
-  // Process deepest layer first, then upward
-  for (let d = maxDepth; d >= 0; d--) {
-    const ids = layers[d] || [];
-    ids.sort((a,b) => byId[a].word.localeCompare(byId[b].word));
-    ids.forEach(id => {
-      const ch = children[id].filter(c => depth[c] > d); // true children
-      if (ch.length === 0) {
-        natural[id] = leafSlot++;
-      } else {
-        natural[id] = ch.reduce((s,c) => s + (natural[c]??0), 0) / ch.length;
-      }
-    });
-  }
-
-  // ── Sort roots by natural x (subtree centroid), alphabetical as tiebreak ──
-  // This places a root to the left of another if its subtree lies to the left,
-  // fixing cases like "nji" sorting alphabetically between two parents of a child.
-  const rootIds = nodes.filter(n => parents[n.id].length === 0).map(n => n.id);
-  rootIds.sort((a,b) => {
-    const diff = (natural[a]||0) - (natural[b]||0);
-    if (Math.abs(diff) > 0.01) return diff;
-    return (byId[a].word||'').localeCompare(byId[b].word||'');
-  });
-
-  // ── Pass 2: top-down final x ──
-  const xRank = {};
-
-  // Assign roots evenly spaced starting at 0
-  rootIds.forEach((id, i) => { xRank[id] = i; });
-
-  const MIN_GAP = 1; // minimum spacing between adjacent nodes in a layer
-
-  sortedDepths.forEach(d => {
-    // Assign non-root nodes in this layer
-    layers[d].filter(id => xRank[id] === undefined).forEach(id => {
-      const ps = parents[id];
-      if (!ps.length) { xRank[id] = natural[id] || 0; return; }
-      // ancestor[0] = left (ps[0]), ancestor[1] = right (ps[1])
-      // Child sits at the average of its parents' x values.
-      // The left/right constraint is satisfied because ancestor[0] will already
-      // have a smaller xRank than ancestor[1] (established in prior layers or
-      // by the root sort), so their average places the child correctly.
-      xRank[id] = ps.reduce((s,p) => s + (xRank[p]??natural[p]??0), 0) / ps.length;
-    });
-
-    // Sort layer and enforce minimum gap
-    const sorted = (layers[d]||[]).slice().sort((a,b) => (xRank[a]||0) - (xRank[b]||0));
-    for (let i = 1; i < sorted.length; i++) {
-      if ((xRank[sorted[i]]||0) < (xRank[sorted[i-1]]||0) + MIN_GAP) {
-        xRank[sorted[i]] = (xRank[sorted[i-1]]||0) + MIN_GAP;
-      }
-    }
-  });
-
-  return { depth, xRank };
-}
 
 // ── Render ───────────────────────────────────────────────────────────────────
 //
@@ -2837,32 +2726,18 @@ function renderGraph(focusId, subgraph) {
     return w;
   };
 
-  const { depth, xRank } = computeLayout(nodes);
-
-  const layers = {};
-  nodes.forEach(n => { const d = depth[n.id]; (layers[d] = layers[d]||[]).push(n); });
-
-  let colW = 0;
-  Object.values(layers).forEach(layer => {
-    layer.sort((a,b) => (xRank[a.id]||0) - (xRank[b.id]||0));
-    for (let i = 0; i < layer.length - 1; i++) {
-      const rankGap = (xRank[layer[i+1].id]||0) - (xRank[layer[i].id]||0);
-      if (rankGap <= 0) continue;
-      const needed = (LABEL_DX + labelPx(layer[i].word) + 4 + NODE_R) / rankGap;
-      if (needed > colW) colW = needed;
-    }
-  });
-  if (colW === 0) colW = LABEL_DX + labelPx(nodes[0]?.word || '') + 10;
-
   const padX = 30, padY = 40;
+
+  // Compute default layout using the full algorithm
+  const defaultLayout = computeFullLayout(nodes);
+
   const pos = {};  // mutable; updated by drag
   nodes.forEach(n => {
-    // Priority: pending layout > saved subgraph positions > computed layout
-    const pending = _pendingLayout?.[n.id];
     const saved   = subgraph?.positions?.[n.id];
-    pos[n.id] = pending ? { x: pending.x, y: pending.y }
-              : saved   ? { x: saved.x,   y: saved.y   }
-              : { x: padX + (xRank[n.id]||0) * colW, y: padY + depth[n.id] * ROW_H };
+    const def     = defaultLayout[n.id];
+  pos[n.id] = saved   ? { x: saved.x,   y: saved.y   }
+              : def     ? { x: def.x,     y: def.y     }
+              : { x: padX, y: padY + ROW_H };
   });
 
   // Helper to persist subgraph positions after any move
