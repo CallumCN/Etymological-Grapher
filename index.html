@@ -2899,11 +2899,11 @@ function renderGraph(focusId, subgraph) {
         const baseY = p.y + NODE_H / 2 + INFO_PAD + INFO_LINE_H * 0.85;
         infoLines.forEach((line, i) => {
           gFluvial.append('text')
-            .attr('x', cx)
+            .attr('x', nl + NODE_W_PAD)
             .attr('y', baseY + i * INFO_LINE_H)
-            .attr('text-anchor', 'middle')
+            .attr('text-anchor', 'start')
             .attr('font-family', '"DM Mono",monospace')
-            .attr('font-size', INFO_FONT)
+            .attr('font-size', i === 0 ? 9.6 : 10.4)
             .attr('fill', line.color)
             .attr('pointer-events', 'none')
             .attr('class', 'fluvial-info')
