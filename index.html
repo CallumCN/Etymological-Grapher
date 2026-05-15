@@ -2528,7 +2528,11 @@ function renderGraph(focusId, subgraph) {
   const LABEL_DX = NODE_R + 6;
   const ROW_H    = 80;
   const NODE_H   = 32;
-  const PAD      = 3; // horizontal padding for collision resolution
+  const PAD      = 3;
+  const INFO_GAP    = 8;
+  const INFO_FONT   = 10;
+  const INFO_LINE_H = 13;
+  const INFO_MAX_W  = 200;
 
   // Fluvial visual constants (used by both redrawFluvial and applyFluvialAppearance)
   const FILL_NORMAL   = 'rgba(154,136,112,0.22)';
@@ -2750,11 +2754,6 @@ function renderGraph(focusId, subgraph) {
 
     const NODE_H      = 32;
     const NODE_W_PAD  = 6;
-    const INFO_GAP    = 8;   // gap between rect right edge and info text
-    const INFO_FONT   = 10;  // px
-    const INFO_LINE_H = 13;  // px per info line
-
-    const INFO_MAX_W  = 200; // world units — matches tooltip 240px at typical zoom
 
     // Word-wrap a string to fit within INFO_MAX_W, returns array of line strings
     function wrapInfoText(text) {
