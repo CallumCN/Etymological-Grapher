@@ -2802,21 +2802,6 @@ function renderGraph(focusId, subgraph) {
   // Set SVG dimensions early — needed for both dot-wire and fluvial
   d3.select(svgEl).attr('width', W).attr('height', H);
 
-  // If fluvial mode, use the fluvial renderer instead of the D3 graph
-  if (graphViewMode === 'fluvial') {
-    svgEl.removeChild(_measureEl);
-    const xs = nodes.map(n => pos[n.id].x);
-    const ys = nodes.map(n => pos[n.id].y);
-    const x0 = Math.min(...xs) - 60, x1 = Math.max(...xs) + 120;
-    const y0 = Math.min(...ys) - 40, y1 = Math.max(...ys) + 40;
-    const bScale = Math.min(W / (x1 - x0), H / (y1 - y0), 2);
-    const bTx = (W - bScale * (x0 + x1)) / 2;
-    const bTy = (H - bScale * (y0 + y1)) / 2;
-    renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale);
-    graphState = { keyHandler: () => {}, wheelCleanup: () => {}, fitToView: () => {}, panToNode: () => {} };
-    return;
-  }
-
   // ── Selection state ──
   const selected = new Set();
 
@@ -2866,6 +2851,7 @@ function renderGraph(focusId, subgraph) {
   // Ghost group (drawn behind nodes)
   const gGhost = gMain.append('g').attr('class', 'ghost-layer');
   const gEdges = gMain.append('g').attr('class', 'edge-layer');
+  const gFluvial = gMain.append('g').attr('class', 'fluvial-layer');
   const gNodes = gMain.append('g').attr('class', 'node-layer');
   // Selection box (in SVG coords, not zoomed)
   const selBoxEl = svg.append('rect')
@@ -2902,12 +2888,171 @@ function renderGraph(focusId, subgraph) {
   }
 
   function redrawEdges() {
+    if (graphViewMode === 'fluvial') { redrawFluvial(); return; }
     gEdges.selectAll('*').remove();
     buildLinks(nodes).forEach(([sid, tid]) => {
       gEdges.append('path')
         .attr('fill','none').attr('stroke','#b87c1a')
         .attr('stroke-opacity', 0.45).attr('stroke-width', 1.3)
         .attr('d', edgePath(sid, tid));
+    });
+  }
+
+  // ── Fluvial layer redraw ──
+  function redrawFluvial() {
+    gEdges.selectAll('*').remove(); // keep edges empty in fluvial mode
+    gFluvial.selectAll('*').remove();
+
+    const NODE_W_PAD  = 6;
+    const FONT_SIZE_F = 15;
+    const FILL_NORMAL = 'rgba(154,136,112,0.22)';
+    const FILL_HOVER  = 'rgba(154,136,112,0.42)';
+    const TEXT_NORMAL_F = '#1a1814';
+    const TEXT_HOVER_F  = '#b87c1a';
+    const FLOW_COLOR_F  = '#9a8870';
+
+    // Use the module-level _measureEl for text measurement
+    function wordWidthF(word) {
+      _measureEl.textContent = word;
+      return _measureEl.getBBox().width + NODE_W_PAD * 2;
+    }
+    function charInfosF(word) {
+      const chars = [...word]; let cursor = NODE_W_PAD;
+      return chars.map(ch => {
+        _measureEl.textContent = ch;
+        const w = _measureEl.getBBox().width;
+        const info = { ch, x: cursor, w }; cursor += w; return info;
+      });
+    }
+    function nodeLeftF(n)   { return pos[n.id].x - wordWidthF(n.word) / 2; }
+    function nodeTopF(n)    { return pos[n.id].y - NODE_H / 2; }
+    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2; }
+
+    // Measure all char infos
+    const ciCache = {};
+    nodes.forEach(n => { ciCache[n.id] = charInfosF(n.word); });
+
+    // Build outgoing flows
+    const outgoing = {};
+    nodes.forEach(child => {
+      (child.ancestors||[]).forEach(ancId => {
+        if (!nodes.find(n=>n.id===ancId)) return;
+        const cm = (child.morphemes||[]).find(m=>m.ancestorId===ancId);
+        if (!cm) return;
+        const ci = ciCache[child.id], slice = ci.slice(cm.start, cm.end);
+        if (!slice.length) return;
+        const cnl = nodeLeftF(child), cnw = wordWidthF(child.word);
+        const isLeft = cm.start===0, isRight = cm.end===child.word.length;
+        const cx0 = isLeft ? cnl : cnl+slice[0].x;
+        const cx1 = isRight ? cnl+cnw : cnl+slice[slice.length-1].x+slice[slice.length-1].w;
+        const cy = nodeTopF(child), py = nodeBottomF(nodes.find(n=>n.id===ancId));
+        const my = (py+cy)/2;
+        if (!outgoing[ancId]) outgoing[ancId]=[];
+        outgoing[ancId].push({ child, cm, cx0, cx1, cy, my, slice });
+      });
+    });
+
+    // Unassigned dotted lines
+    if (showUnassigned) {
+      nodes.forEach(child => {
+        (child.ancestors||[]).filter(aid=>nodes.find(n=>n.id===aid)).forEach(ancId => {
+          if ((child.morphemes||[]).some(m=>m.ancestorId===ancId)) return;
+          const parent = nodes.find(n=>n.id===ancId);
+          if (!parent) return;
+          const line = gFluvial.append('line')
+            .attr('x1',pos[parent.id].x).attr('y1',nodeBottomF(parent))
+            .attr('x2',pos[child.id].x).attr('y2',nodeTopF(child))
+            .attr('stroke',FLOW_COLOR_F).attr('stroke-width',1)
+            .attr('stroke-dasharray','4 4').attr('opacity',0.5);
+        });
+      });
+    }
+
+    // Build path for each parent
+    function buildPath(pnl, pnr, pnt, pnb, legs) {
+      let d = `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
+      legs.forEach(leg => {
+        d += ` M ${leg.cx0} ${leg.cy}` +
+             ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
+             ` L ${pnr} ${pnb}` +
+             ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy} Z`;
+      });
+      return d;
+    }
+
+    // Per-char text elements for hover
+    const charEls = {};
+
+    // Pass 1: flow shapes
+    nodes.forEach(parent => {
+      const legs = outgoing[parent.id];
+      const pnl = nodeLeftF(parent), pnr = pnl + wordWidthF(parent.word);
+      const pnt = nodeTopF(parent),  pnb = nodeBottomF(parent);
+
+      if (!legs || !legs.length) {
+        gFluvial.append('rect')
+          .attr('x',pnl).attr('y',pnt)
+          .attr('width',pnr-pnl).attr('height',NODE_H)
+          .attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL)
+          .attr('stroke','none')
+          .attr('class',`fluvial-shape`)
+          .attr('data-id', parent.id);
+        return;
+      }
+      legs.sort((a,b)=>a.cx0-b.cx0);
+      const pathEl = gFluvial.append('path')
+        .attr('d', buildPath(pnl,pnr,pnt,pnb,legs))
+        .attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL)
+        .attr('fill-rule','nonzero').attr('stroke','none')
+        .attr('class','fluvial-shape')
+        .attr('data-id', parent.id);
+
+      const tooltipEl = document.getElementById('graph-tooltip');
+      pathEl.on('mouseenter', function(e) {
+        d3.select(this).attr('fill', FILL_HOVER);
+        document.getElementById('tt-word').textContent  = parent.word;
+        document.getElementById('tt-trans').textContent = parent.transcription||'';
+        document.getElementById('tt-gloss').textContent = parent.meaning||'';
+        const svgRect = svgEl.getBoundingClientRect();
+        tooltipEl.style.left = (e.clientX-svgRect.left+14)+'px';
+        tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
+        tooltipEl.classList.add('visible');
+        legs.forEach(leg => {
+          (charEls[leg.child.id]||[]).slice(leg.cm.start, leg.cm.end)
+            .forEach(s => d3.select(s).attr('fill', TEXT_HOVER_F));
+        });
+      });
+      pathEl.on('mousemove', function(e) {
+        const svgRect = svgEl.getBoundingClientRect();
+        tooltipEl.style.left = (e.clientX-svgRect.left+14)+'px';
+        tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
+      });
+      pathEl.on('mouseleave', function() {
+        d3.select(this).attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL);
+        tooltipEl.classList.remove('visible');
+        legs.forEach(leg => {
+          (charEls[leg.child.id]||[]).slice(leg.cm.start, leg.cm.end)
+            .forEach(s => d3.select(s).attr('fill', TEXT_NORMAL_F));
+        });
+      });
+    });
+
+    // Pass 2: per-character text
+    nodes.forEach(n => {
+      const p = pos[n.id]; if (!p) return;
+      const ci = ciCache[n.id], nl = nodeLeftF(n);
+      const spans = ci.map((info) => {
+        return gFluvial.append('text')
+          .attr('x', nl+info.x+info.w/2).attr('y', p.y+FONT_SIZE_F*0.35)
+          .attr('text-anchor','middle')
+          .attr('font-family','"Cormorant Garamond",serif')
+          .attr('font-size', FONT_SIZE_F)
+          .attr('fill', TEXT_NORMAL_F)
+          .attr('pointer-events','none')
+          .text(info.ch)
+          .node();
+      });
+      charEls[n.id] = spans;
     });
   }
 
@@ -2925,7 +3070,18 @@ function renderGraph(focusId, subgraph) {
   }
 
   function updateNodeAppearance(pendingIds) {
-    // pendingIds: set of ids highlighted during rubber-band drag (not yet confirmed)
+    if (graphViewMode === 'fluvial') {
+      gFluvial.selectAll('.fluvial-shape').each(function() {
+        const id = this.getAttribute('data-id');
+        const isPending  = pendingIds && pendingIds.has(id);
+        const isSelected = selected.has(id);
+        d3.select(this).attr('fill',
+          isSelected ? 'rgba(184,124,26,0.45)' :
+          isPending  ? 'rgba(184,124,26,0.28)' :
+                       'rgba(154,136,112,0.22)');
+      });
+      return;
+    }
     gNodes.selectAll('g.node-grp').each(function(d) {
       const isPending = pendingIds && pendingIds.has(d.id);
       const isSelected = selected.has(d.id);
@@ -2948,7 +3104,8 @@ function renderGraph(focusId, subgraph) {
     .attr('r', NODE_R)
     .attr('fill', d => nodeCircleFill(d))
     .attr('stroke', d => nodeCircleStroke(d))
-    .attr('stroke-width', 1.2);
+    .attr('stroke-width', 1.2)
+    .style('display', graphViewMode === 'fluvial' ? 'none' : null);
 
   nodeSel.append('text').attr('class', 'node-label')
     .attr('x', LABEL_DX).attr('dy', '0.35em')
@@ -2958,7 +3115,23 @@ function renderGraph(focusId, subgraph) {
     .attr('fill', d => nodeLabelFill(d))
     .attr('pointer-events', 'none')
     .style('user-select', 'none')
+    .style('display', graphViewMode === 'fluvial' ? 'none' : null)
     .text(d => d.word);
+
+  // In fluvial mode, give each node group an invisible hit rect matching the node body
+  if (graphViewMode === 'fluvial') {
+    nodeSel.each(function(d) {
+      const nw = _measureEl ? (() => {
+        _measureEl.textContent = d.word;
+        return _measureEl.getBBox().width + 12;
+      })() : 80;
+      d3.select(this).append('rect')
+        .attr('class', 'node-hit')
+        .attr('x', -nw/2).attr('y', -NODE_H/2)
+        .attr('width', nw).attr('height', NODE_H)
+        .attr('fill', 'transparent').attr('stroke', 'none');
+    });
+  }
 
   // Attach drag + hover behavior to a node group selection (works for initial and added nodes)
   function attachNodeBehavior(sel, datum) {
@@ -3259,13 +3432,22 @@ function renderGraph(focusId, subgraph) {
             .attr('data-id', gid)
             .attr('cursor','pointer')
             .attr('transform', `translate(${pos[gid].x},${pos[gid].y})`);
-          newGrp.append('circle').attr('class','node-circle')
-            .attr('r', NODE_R).attr('fill','#ede9e0').attr('stroke','#8a8680').attr('stroke-width',1.2);
-          newGrp.append('text').attr('class','node-label')
-            .attr('x', LABEL_DX).attr('dy','0.35em').attr('text-anchor','start')
-            .attr('font-family','Cormorant Garamond, serif').attr('font-size',13)
-            .attr('fill','#1a1814').attr('pointer-events','none')
-            .style('user-select','none').text(gNode.word);
+          if (graphViewMode === 'fluvial') {
+            _measureEl.textContent = gNode.word;
+            const nw = _measureEl.getBBox().width + 12;
+            newGrp.append('rect').attr('class','node-hit')
+              .attr('x',-nw/2).attr('y',-NODE_H/2)
+              .attr('width',nw).attr('height',NODE_H)
+              .attr('fill','transparent').attr('stroke','none');
+          } else {
+            newGrp.append('circle').attr('class','node-circle')
+              .attr('r', NODE_R).attr('fill','#ede9e0').attr('stroke','#8a8680').attr('stroke-width',1.2);
+            newGrp.append('text').attr('class','node-label')
+              .attr('x', LABEL_DX).attr('dy','0.35em').attr('text-anchor','start')
+              .attr('font-family','Cormorant Garamond, serif').attr('font-size',13)
+              .attr('fill','#1a1814').attr('pointer-events','none')
+              .style('user-select','none').text(gNode.word);
+          }
           // Attach drag and hover to the new node
           attachNodeBehavior(newGrp, gNode);
           // Cascade in the relevant direction.
@@ -3327,19 +3509,33 @@ function renderGraph(focusId, subgraph) {
           }
         });
 
-      grp.append('circle')
-        .attr('r', NODE_R)
-        .attr('fill','#f7f4ee').attr('stroke','#b87c1a')
-        .attr('stroke-width',1).attr('stroke-opacity',0.5)
-        .attr('fill-opacity',0.5);
-
-      grp.append('text')
-        .attr('x', LABEL_DX).attr('dy','0.35em')
-        .attr('text-anchor','start')
-        .attr('font-family','Cormorant Garamond, serif').attr('font-size',12)
-        .attr('fill','#8a8680').attr('pointer-events','none')
-        .style('user-select','none')
-        .text(gNode.word);
+      if (graphViewMode === 'fluvial') {
+        _measureEl.textContent = gNode.word;
+        const nw = _measureEl.getBBox().width + 12;
+        grp.append('rect')
+          .attr('x',-nw/2).attr('y',-NODE_H/2)
+          .attr('width',nw).attr('height',NODE_H)
+          .attr('fill','rgba(247,244,238,0.5)').attr('stroke','#b87c1a')
+          .attr('stroke-width',1).attr('stroke-opacity',0.5);
+        grp.append('text')
+          .attr('x',0).attr('dy','0.35em')
+          .attr('text-anchor','middle')
+          .attr('font-family','Cormorant Garamond, serif').attr('font-size',15)
+          .attr('fill','rgba(138,134,128,0.7)').attr('pointer-events','none')
+          .style('user-select','none').text(gNode.word);
+      } else {
+        grp.append('circle')
+          .attr('r', NODE_R)
+          .attr('fill','#f7f4ee').attr('stroke','#b87c1a')
+          .attr('stroke-width',1).attr('stroke-opacity',0.5)
+          .attr('fill-opacity',0.5);
+        grp.append('text')
+          .attr('x', LABEL_DX).attr('dy','0.35em')
+          .attr('text-anchor','start')
+          .attr('font-family','Cormorant Garamond, serif').attr('font-size',12)
+          .attr('fill','#8a8680').attr('pointer-events','none')
+          .style('user-select','none').text(gNode.word);
+      }
     });
   }
 
@@ -3478,6 +3674,12 @@ function renderGraph(focusId, subgraph) {
     const wb = svgToWorld(Math.max(svgX0, svgX1), Math.max(svgY0, svgY1));
     return nodes.filter(n => {
       const p = pos[n.id];
+      if (graphViewMode === 'fluvial') {
+        _measureEl.textContent = n.word;
+        const hw = (_measureEl.getBBox().width + 12) / 2;
+        const hh = NODE_H / 2;
+        return p.x+hw >= wa.x && p.x-hw <= wb.x && p.y+hh >= wa.y && p.y-hh <= wb.y;
+      }
       return p.x >= wa.x - NODE_R && p.x <= wb.x + NODE_R
           && p.y >= wa.y - NODE_R && p.y <= wb.y + NODE_R;
     }).map(n => n.id);
@@ -3603,8 +3805,15 @@ function renderGraph(focusId, subgraph) {
   function fitToView() {
     const xs = nodes.map(n => pos[n.id].x);
     const ys = nodes.map(n => pos[n.id].y);
-    const x0 = Math.min(...xs) - padX;
-    const x1 = Math.max(...xs) + padX + Math.max(...nodes.map(n => labelPx(n.word))) + NODE_R;
+    let x0, x1;
+    if (graphViewMode === 'fluvial') {
+      const halfWidths = nodes.map(n => { _measureEl.textContent = n.word; return _measureEl.getBBox().width/2 + 6; });
+      x0 = Math.min(...nodes.map((n,i) => pos[n.id].x - halfWidths[i])) - padX;
+      x1 = Math.max(...nodes.map((n,i) => pos[n.id].x + halfWidths[i])) + padX;
+    } else {
+      x0 = Math.min(...xs) - padX;
+      x1 = Math.max(...xs) + padX + Math.max(...nodes.map(n => labelPx(n.word))) + NODE_R;
+    }
     const y0 = Math.min(...ys) - padY;
     const y1 = Math.max(...ys) + padY;
     const contentW = x1 - x0, contentH = y1 - y0;
