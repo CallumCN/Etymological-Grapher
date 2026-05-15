@@ -3045,16 +3045,16 @@ function renderGraph(focusId, subgraph) {
       });
     }
 
-    // Build path for each parent
+    // Build path for each parent — legs only, no rect body (rect drawn separately)
     function buildPath(pnl, pnr, pnt, pnb, legs) {
-      let d = `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
+      let d = '';
       legs.forEach(leg => {
         d += ` M ${leg.cx0} ${leg.cy}` +
              ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
              ` L ${pnr} ${pnb}` +
              ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy} Z`;
       });
-      return d;
+      return d.trim();
     }
 
     // Per-char text elements — built in Pass 2, used by applyFluvialAppearance
