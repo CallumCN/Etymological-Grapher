@@ -1071,10 +1071,7 @@ nav {
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
       <div class="graph-view-mode-btns">
-        <button class="graph-btn-sm graph-overlay-dotswitch" id="btn-dotswitch" onclick="setViewMode('dot')">Dot & wire</button>
-        <button class="graph-btn-sm graph-overlay-fluvial" id="btn-fluvial" onclick="setViewMode('fluvial')">Fluvial</button>
-        <button class="graph-btn-sm" id="btn-unassigned" onclick="toggleUnassigned()" title="Show connections for etymons without assigned characters" style="display:none;border-left:none;">Unassigned</button>
-      </div>
+</div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
       <div class="graph-tooltip" id="graph-tooltip">
         <div class="tt-word" id="tt-word"></div>
@@ -1163,7 +1160,6 @@ function init() {
   currentView = 'lexicon';
   document.getElementById('tab-lexicon').classList.add('active');
   document.getElementById('graph-view').classList.remove('active');
-  document.getElementById('btn-dotswitch')?.classList.add('active');
 }
 
 // Persist current view whenever it changes
@@ -2225,248 +2221,9 @@ function reorderAncestorsByMorphemes(wordLen) {
 }
 
 // ─── FLUVIAL VIEW ────────────────────────────────────────────────────────
-let graphViewMode = 'dot'; // 'dot' or 'fluvial'
-let showUnassigned = false;
+// fluvial is now the only view mode
+const graphViewMode = 'fluvial';
 
-function setViewMode(mode) {
-  graphViewMode = mode;
-  document.getElementById('btn-dotswitch').classList.toggle('active', mode === 'dot');
-  document.getElementById('btn-fluvial').classList.toggle('active', mode === 'fluvial');
-  const unBtn = document.getElementById('btn-unassigned');
-  if (unBtn) unBtn.style.display = mode === 'fluvial' ? '' : 'none';
-  if (currentView === 'lexicon' || currentView === 'graph') {
-    if (activeSubgraphId) {
-      const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
-      renderSubgraph(sg);
-    } else {
-      renderGraph(null);
-    }
-  }
-}
-
-function toggleUnassigned() {
-  showUnassigned = !showUnassigned;
-  document.getElementById('btn-unassigned').classList.toggle('active', showUnassigned);
-  if (activeSubgraphId) {
-    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
-    renderSubgraph(sg);
-  } else {
-    renderGraph(null);
-  }
-}
-
-// Keep backward compat alias
-function toggleBraidedView() { setViewMode(graphViewMode === 'fluvial' ? 'dot' : 'fluvial'); }
-
-function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
-  const byId = {};
-  nodes.forEach(n => { byId[n.id] = n; });
-
-  const g = document.createElementNS('http://www.w3.org/2000/svg','g');
-  g.setAttribute('transform', `translate(${bTx},${bTy}) scale(${bScale})`);
-
-  const NODE_W_PAD = 6;
-  const NODE_H     = 32;
-  const FONT_SIZE  = 15;
-  const FLOW_COLOR = '#9a8870';
-  const FILL_NORMAL = 'rgba(154,136,112,0.22)';
-  const FILL_HOVER  = 'rgba(154,136,112,0.42)';
-  const TEXT_NORMAL = '#1a1814';
-  const TEXT_HOVER  = '#b87c1a';
-
-  const measureEl = document.createElementNS('http://www.w3.org/2000/svg','text');
-  measureEl.style.cssText = `font-family:"Cormorant Garamond",serif;font-size:${FONT_SIZE}px;visibility:hidden;`;
-  svgEl.appendChild(measureEl);
-
-  const widthCache = {};
-  function wordWidth(word) {
-    if (widthCache[word] !== undefined) return widthCache[word];
-    measureEl.textContent = word;
-    widthCache[word] = measureEl.getBBox().width + NODE_W_PAD * 2;
-    return widthCache[word];
-  }
-
-  function charInfos(word) {
-    const chars = [...word];
-    let cursor = NODE_W_PAD;
-    return chars.map(ch => {
-      measureEl.textContent = ch;
-      const w = measureEl.getBBox().width;
-      const info = { ch, x: cursor, w };
-      cursor += w;
-      return info;
-    });
-  }
-
-  function nodeLeft(n)   { return pos[n.id].x - wordWidth(n.word) / 2; }
-  function nodeTop(n)    { return pos[n.id].y - NODE_H / 2; }
-  function nodeBottom(n) { return pos[n.id].y + NODE_H / 2; }
-
-  const charInfoCache = {};
-  nodes.forEach(n => { charInfoCache[n.id] = charInfos(n.word); });
-
-  // ── Build outgoing flow data per parent ──
-  const outgoing = {};
-  nodes.forEach(child => {
-    (child.ancestors || []).forEach(ancId => {
-      if (!byId[ancId]) return;
-      const cm = (child.morphemes || []).find(m => m.ancestorId === ancId);
-      if (!cm) return;
-      const ci    = charInfoCache[child.id];
-      const slice = ci.slice(cm.start, cm.end);
-      if (!slice.length) return;
-      const cnl = nodeLeft(child);
-      const cnw = wordWidth(child.word);
-      const isLeft  = cm.start === 0;
-      const isRight = cm.end === child.word.length;
-      const cx0 = isLeft  ? cnl       : cnl + slice[0].x;
-      const cx1 = isRight ? cnl + cnw : cnl + slice[slice.length-1].x + slice[slice.length-1].w;
-      const cy  = nodeTop(child);
-      const py  = nodeBottom(byId[ancId]);
-      const my  = (py + cy) / 2;
-      if (!outgoing[ancId]) outgoing[ancId] = [];
-      outgoing[ancId].push({ child, cm, cx0, cx1, cy, my, slice });
-    });
-  });
-
-  // ── Union path builder ──
-  function buildParentPath(pnl, pnr, pnt, pnb, legs) {
-    let d = `M ${pnl} ${pnt} L ${pnr} ${pnt} L ${pnr} ${pnb} L ${pnl} ${pnb} Z`;
-    legs.forEach(leg => {
-      d += ` M ${leg.cx0} ${leg.cy}` +
-           ` C ${leg.cx0} ${leg.my}, ${pnl} ${leg.my}, ${pnl} ${pnb}` +
-           ` L ${pnr} ${pnb}` +
-           ` C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}` +
-           ` Z`;
-    });
-    return d;
-  }
-
-  // ── Tooltip helper ──
-  const tooltipEl = document.getElementById('graph-tooltip');
-  function showFluvialTooltip(n, e) {
-    document.getElementById('tt-word').textContent  = n.word;
-    document.getElementById('tt-trans').textContent = n.transcription || '';
-    document.getElementById('tt-gloss').textContent = n.meaning || '';
-    const svgRect = svgEl.getBoundingClientRect();
-    tooltipEl.style.left = (e.clientX - svgRect.left + 14) + 'px';
-    tooltipEl.style.top  = (e.clientY - svgRect.top  - 8)  + 'px';
-    tooltipEl.classList.add('visible');
-  }
-  function moveFluvialTooltip(e) {
-    if (!tooltipEl.classList.contains('visible')) return;
-    const svgRect = svgEl.getBoundingClientRect();
-    tooltipEl.style.left = (e.clientX - svgRect.left + 14) + 'px';
-    tooltipEl.style.top  = (e.clientY - svgRect.top  - 8)  + 'px';
-  }
-  function hideFluvialTooltip() { tooltipEl.classList.remove('visible'); }
-
-  // ── Pass 0: unassigned dotted lines (optional) ──
-  if (showUnassigned) {
-    nodes.forEach(child => {
-      (child.ancestors || []).filter(aid => byId[aid]).forEach(ancId => {
-        if ((child.morphemes || []).some(m => m.ancestorId === ancId)) return;
-        const parent = byId[ancId];
-        if (!parent || !pos[parent.id] || !pos[child.id]) return;
-        const line = document.createElementNS('http://www.w3.org/2000/svg','line');
-        line.setAttribute('x1', pos[parent.id].x); line.setAttribute('y1', nodeBottom(parent));
-        line.setAttribute('x2', pos[child.id].x);  line.setAttribute('y2', nodeTop(child));
-        line.setAttribute('stroke', FLOW_COLOR);
-        line.setAttribute('stroke-width', '1');
-        line.setAttribute('stroke-dasharray', '4 4');
-        line.setAttribute('opacity', '0.5');
-        g.appendChild(line);
-      });
-    });
-  }
-
-  // ── Pass 1: one union path per parent ──
-  const textEls = {};
-
-  nodes.forEach(parent => {
-    const legs = outgoing[parent.id];
-    const pnl  = nodeLeft(parent);
-    const pnr  = pnl + wordWidth(parent.word);
-    const pnt  = nodeTop(parent);
-    const pnb  = nodeBottom(parent);
-
-    if (!legs || !legs.length) {
-      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
-      rect.setAttribute('x', pnl); rect.setAttribute('y', pnt);
-      rect.setAttribute('width', pnr - pnl); rect.setAttribute('height', NODE_H);
-      rect.setAttribute('fill', FILL_NORMAL);
-      rect.setAttribute('stroke', 'none');
-      rect.style.cursor = 'default';
-      rect.addEventListener('mouseenter', e => showFluvialTooltip(parent, e));
-      rect.addEventListener('mousemove',  e => moveFluvialTooltip(e));
-      rect.addEventListener('mouseleave', hideFluvialTooltip);
-      g.appendChild(rect);
-      return;
-    }
-
-    legs.sort((a, b) => a.cx0 - b.cx0);
-
-    const pathEl = document.createElementNS('http://www.w3.org/2000/svg','path');
-    pathEl.setAttribute('d', buildParentPath(pnl, pnr, pnt, pnb, legs));
-    pathEl.setAttribute('fill', FILL_NORMAL);
-    pathEl.setAttribute('fill-rule', 'nonzero');
-    pathEl.setAttribute('stroke', 'none');
-    pathEl.style.cursor = 'default';
-
-    pathEl.addEventListener('mouseenter', e => {
-      pathEl.setAttribute('fill', FILL_HOVER);
-      showFluvialTooltip(parent, e);
-      legs.forEach(leg => {
-        const spans = charEls[leg.child.id];
-        if (!spans) return;
-        for (let i = leg.cm.start; i < leg.cm.end; i++) {
-          if (spans[i]) spans[i].setAttribute('fill', TEXT_HOVER);
-        }
-      });
-    });
-    pathEl.addEventListener('mousemove', e => moveFluvialTooltip(e));
-    pathEl.addEventListener('mouseleave', () => {
-      pathEl.setAttribute('fill', FILL_NORMAL);
-      hideFluvialTooltip();
-      legs.forEach(leg => {
-        const spans = charEls[leg.child.id];
-        if (!spans) return;
-        for (let i = leg.cm.start; i < leg.cm.end; i++) {
-          if (spans[i]) spans[i].setAttribute('fill', TEXT_NORMAL);
-        }
-      });
-    });
-
-    g.appendChild(pathEl);
-  });
-
-  // ── Pass 2: word text as per-character text elements (on top, pointer-events none) ──
-  const charEls = {};
-  nodes.forEach(n => {
-    const p = pos[n.id];
-    if (!p) return;
-    const ci = charInfoCache[n.id];
-    const nl = nodeLeft(n);
-    const spans = [];
-    ci.forEach((info, idx) => {
-      const ts = document.createElementNS('http://www.w3.org/2000/svg','text');
-      ts.setAttribute('x', nl + info.x + info.w / 2);
-      ts.setAttribute('y', p.y + FONT_SIZE * 0.35);
-      ts.setAttribute('text-anchor', 'middle');
-      ts.setAttribute('font-family', '"Cormorant Garamond",serif');
-      ts.setAttribute('font-size', FONT_SIZE);
-      ts.setAttribute('fill', TEXT_NORMAL);
-      ts.setAttribute('pointer-events', 'none');
-      ts.textContent = info.ch;
-      spans.push(ts);
-      g.appendChild(ts);
-    });
-    charEls[n.id] = spans;
-  });
-
-  svgEl.removeChild(measureEl);
-  svgEl.appendChild(g);
-}
 // ─── GRAPH ────────────────────────────────
 let focusedVisible = null;
 
@@ -2899,16 +2656,7 @@ function renderGraph(focusId, subgraph) {
     return links;
   }
 
-  function redrawEdges() {
-    if (graphViewMode === 'fluvial') { redrawFluvial(); return; }
-    gEdges.selectAll('*').remove();
-    buildLinks(nodes).forEach(([sid, tid]) => {
-      gEdges.append('path')
-        .attr('fill','none').attr('stroke','#b87c1a')
-        .attr('stroke-opacity', 0.45).attr('stroke-width', 1.3)
-        .attr('d', edgePath(sid, tid));
-    });
-  }
+  function redrawEdges() { redrawFluvial(); }
 
   // ── Fluvial layer redraw ──
   // ── Fluvial hover state ──
@@ -2918,7 +2666,6 @@ function renderGraph(focusId, subgraph) {
   const hoveredFlowIds = new Set();
 
   function applyFluvialAppearance(pendingIds) {
-    if (graphViewMode !== 'fluvial') return;
 
     const FILL_SEL  = 'rgba(184,124,26,0.38)';
     const FILL_HOV  = 'rgba(154,136,112,0.38)';
@@ -3187,19 +2934,7 @@ function renderGraph(focusId, subgraph) {
   }
 
   function updateNodeAppearance(pendingIds) {
-    if (graphViewMode === 'fluvial') {
-      applyFluvialAppearance(pendingIds);
-      return;
-    }
-    gNodes.selectAll('g.node-grp').each(function(d) {
-      const isPending = pendingIds && pendingIds.has(d.id);
-      const isSelected = selected.has(d.id);
-      d3.select(this).select('circle.node-circle')
-        .attr('fill', isSelected ? '#b87c1a' : isPending ? '#c8a050' : '#ede9e0')
-        .attr('stroke', isSelected ? '#8a5010' : isPending ? '#9a6010' : '#8a8680');
-      d3.select(this).select('text.node-label')
-        .attr('fill', isSelected ? '#b87c1a' : isPending ? '#9a6010' : '#1a1814');
-    });
+    applyFluvialAppearance(pendingIds);
   }
 
   // ── Draw nodes ──
@@ -3210,37 +2945,27 @@ function renderGraph(focusId, subgraph) {
     .attr('transform', d => `translate(${pos[d.id].x},${pos[d.id].y})`);
 
   nodeSel.append('circle').attr('class', 'node-circle')
-    .attr('r', NODE_R)
-    .attr('fill', d => nodeCircleFill(d))
-    .attr('stroke', d => nodeCircleStroke(d))
-    .attr('stroke-width', 1.2)
-    .style('display', graphViewMode === 'fluvial' ? 'none' : null);
+    .attr('r', NODE_R).attr('fill', '#ede9e0').attr('stroke', '#8a8680')
+    .attr('stroke-width', 1.2).style('display', 'none');
 
   nodeSel.append('text').attr('class', 'node-label')
     .attr('x', LABEL_DX).attr('dy', '0.35em')
-    .attr('text-anchor', 'start')
-    .attr('font-family', 'Cormorant Garamond, serif')
-    .attr('font-size', 13)
-    .attr('fill', d => nodeLabelFill(d))
-    .attr('pointer-events', 'none')
-    .style('user-select', 'none')
-    .style('display', graphViewMode === 'fluvial' ? 'none' : null)
+    .attr('text-anchor', 'start').attr('font-family', 'Cormorant Garamond, serif')
+    .attr('font-size', 13).attr('fill', '#1a1814')
+    .attr('pointer-events', 'none').style('user-select', 'none').style('display', 'none')
     .text(d => d.word);
 
-  // In fluvial mode, give each node group an invisible hit rect matching the node body
-  if (graphViewMode === 'fluvial') {
-    nodeSel.each(function(d) {
-      const nw = _measureEl ? (() => {
-        _measureEl.textContent = d.word;
-        return _measureEl.getBBox().width + 12;
-      })() : 80;
-      d3.select(this).append('rect')
-        .attr('class', 'node-hit')
-        .attr('x', -nw/2).attr('y', -NODE_H/2)
-        .attr('width', nw).attr('height', NODE_H)
-        .attr('fill', 'transparent').attr('stroke', 'none');
-    });
-  }
+  // Node hit rect for fluvial (covers word rectangle area)
+  nodeSel.each(function(d) {
+    const nw = _measureEl ? (() => {
+      _measureEl.textContent = d.word;
+      return _measureEl.getBBox().width + 12;
+    })() : 80;
+    d3.select(this).append('rect').attr('class', 'node-hit')
+      .attr('x', -nw/2).attr('y', -NODE_H/2)
+      .attr('width', nw).attr('height', NODE_H)
+      .attr('fill', 'transparent').attr('stroke', 'none');
+  });
 
   // Attach drag + hover behavior to a node group selection (works for initial and added nodes)
   function attachNodeBehavior(sel, datum) {
@@ -3261,7 +2986,7 @@ function renderGraph(focusId, subgraph) {
         // Clear hover state so dragged nodes show selection color, not hover color
         hoveredIds.clear();
         hoveredFlowIds.clear();
-        if (graphViewMode === 'fluvial') applyFluvialAppearance(null);
+        applyFluvialAppearance(null);
         // Snapshot y of each selected node
         dragStartY = {};
         selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
@@ -3408,11 +3133,9 @@ function renderGraph(focusId, subgraph) {
         tooltip.classList.add('visible');
         if (!ghost || !ghost.pinned) showGhost(d.id, false);
         svgEl.dataset.hoveredNode = d.id;
-        if (graphViewMode === 'fluvial') {
-          hoveredIds.add(d.id);
+        hoveredIds.add(d.id);
           if (selected.has(d.id)) selected.forEach(id => hoveredIds.add(id));
           applyFluvialAppearance(null);
-        }
       })
       .on('mousemove', e => {
         const [mx, my] = d3.pointer(e, svgEl);
@@ -3422,11 +3145,9 @@ function renderGraph(focusId, subgraph) {
         tooltip.classList.remove('visible');
         delete svgEl.dataset.hoveredNode;
         if (ghost && !ghost.pinned) clearGhost();
-        if (graphViewMode === 'fluvial') {
-          hoveredIds.delete(d.id);
+        hoveredIds.delete(d.id);
           if (selected.has(d.id)) selected.forEach(id => hoveredIds.delete(id));
           applyFluvialAppearance(null);
-        }
       })
       .on('dblclick', (e, d) => {
         e.stopPropagation();
@@ -3555,22 +3276,12 @@ function renderGraph(focusId, subgraph) {
             .attr('data-id', gid)
             .attr('cursor','pointer')
             .attr('transform', `translate(${pos[gid].x},${pos[gid].y})`);
-          if (graphViewMode === 'fluvial') {
-            _measureEl.textContent = gNode.word;
-            const nw = _measureEl.getBBox().width + 12;
-            newGrp.append('rect').attr('class','node-hit')
-              .attr('x',-nw/2).attr('y',-NODE_H/2)
-              .attr('width',nw).attr('height',NODE_H)
-              .attr('fill','transparent').attr('stroke','none');
-          } else {
-            newGrp.append('circle').attr('class','node-circle')
-              .attr('r', NODE_R).attr('fill','#ede9e0').attr('stroke','#8a8680').attr('stroke-width',1.2);
-            newGrp.append('text').attr('class','node-label')
-              .attr('x', LABEL_DX).attr('dy','0.35em').attr('text-anchor','start')
-              .attr('font-family','Cormorant Garamond, serif').attr('font-size',13)
-              .attr('fill','#1a1814').attr('pointer-events','none')
-              .style('user-select','none').text(gNode.word);
-          }
+          _measureEl.textContent = gNode.word;
+          const nw = _measureEl.getBBox().width + 12;
+          newGrp.append('rect').attr('class','node-hit')
+            .attr('x',-nw/2).attr('y',-NODE_H/2)
+            .attr('width',nw).attr('height',NODE_H)
+            .attr('fill','transparent').attr('stroke','none');
           // Attach drag and hover to the new node
           attachNodeBehavior(newGrp, gNode);
           // Cascade in the relevant direction.
@@ -3632,33 +3343,19 @@ function renderGraph(focusId, subgraph) {
           }
         });
 
-      if (graphViewMode === 'fluvial') {
-        _measureEl.textContent = gNode.word;
-        const nw = _measureEl.getBBox().width + 12;
-        grp.append('rect')
-          .attr('x',-nw/2).attr('y',-NODE_H/2)
-          .attr('width',nw).attr('height',NODE_H)
-          .attr('fill','rgba(247,244,238,0.5)').attr('stroke','#b87c1a')
-          .attr('stroke-width',1).attr('stroke-opacity',0.5);
-        grp.append('text')
-          .attr('x',0).attr('dy','0.35em')
-          .attr('text-anchor','middle')
-          .attr('font-family','Cormorant Garamond, serif').attr('font-size',15)
-          .attr('fill','rgba(138,134,128,0.7)').attr('pointer-events','none')
-          .style('user-select','none').text(gNode.word);
-      } else {
-        grp.append('circle')
-          .attr('r', NODE_R)
-          .attr('fill','#f7f4ee').attr('stroke','#b87c1a')
-          .attr('stroke-width',1).attr('stroke-opacity',0.5)
-          .attr('fill-opacity',0.5);
-        grp.append('text')
-          .attr('x', LABEL_DX).attr('dy','0.35em')
-          .attr('text-anchor','start')
-          .attr('font-family','Cormorant Garamond, serif').attr('font-size',12)
-          .attr('fill','#8a8680').attr('pointer-events','none')
-          .style('user-select','none').text(gNode.word);
-      }
+      _measureEl.textContent = gNode.word;
+      const nw = _measureEl.getBBox().width + 12;
+      grp.append('rect')
+        .attr('x',-nw/2).attr('y',-NODE_H/2)
+        .attr('width',nw).attr('height',NODE_H)
+        .attr('fill','rgba(247,244,238,0.5)').attr('stroke','#b87c1a')
+        .attr('stroke-width',1).attr('stroke-opacity',0.5);
+      grp.append('text')
+        .attr('x',0).attr('dy','0.35em')
+        .attr('text-anchor','middle')
+        .attr('font-family','Cormorant Garamond, serif').attr('font-size',15)
+        .attr('fill','rgba(138,134,128,0.7)').attr('pointer-events','none')
+        .style('user-select','none').text(gNode.word);
     });
   }
 
@@ -3797,14 +3494,10 @@ function renderGraph(focusId, subgraph) {
     const wb = svgToWorld(Math.max(svgX0, svgX1), Math.max(svgY0, svgY1));
     return nodes.filter(n => {
       const p = pos[n.id];
-      if (graphViewMode === 'fluvial') {
-        _measureEl.textContent = n.word;
-        const hw = (_measureEl.getBBox().width + 12) / 2;
-        const hh = NODE_H / 2;
-        return p.x+hw >= wa.x && p.x-hw <= wb.x && p.y+hh >= wa.y && p.y-hh <= wb.y;
-      }
-      return p.x >= wa.x - NODE_R && p.x <= wb.x + NODE_R
-          && p.y >= wa.y - NODE_R && p.y <= wb.y + NODE_R;
+      _measureEl.textContent = n.word;
+      const hw = (_measureEl.getBBox().width + 12) / 2;
+      const hh = NODE_H / 2;
+      return p.x+hw >= wa.x && p.x-hw <= wb.x && p.y+hh >= wa.y && p.y-hh <= wb.y;
     }).map(n => n.id);
   }
 
@@ -3928,15 +3621,9 @@ function renderGraph(focusId, subgraph) {
   function fitToView() {
     const xs = nodes.map(n => pos[n.id].x);
     const ys = nodes.map(n => pos[n.id].y);
-    let x0, x1;
-    if (graphViewMode === 'fluvial') {
-      const halfWidths = nodes.map(n => { _measureEl.textContent = n.word; return _measureEl.getBBox().width/2 + 6; });
-      x0 = Math.min(...nodes.map((n,i) => pos[n.id].x - halfWidths[i])) - padX;
-      x1 = Math.max(...nodes.map((n,i) => pos[n.id].x + halfWidths[i])) + padX;
-    } else {
-      x0 = Math.min(...xs) - padX;
-      x1 = Math.max(...xs) + padX + Math.max(...nodes.map(n => labelPx(n.word))) + NODE_R;
-    }
+    const halfWidths = nodes.map(n => { _measureEl.textContent = n.word; return _measureEl.getBBox().width/2 + 6; });
+    const x0 = Math.min(...nodes.map((n,i) => pos[n.id].x - halfWidths[i])) - padX;
+    const x1 = Math.max(...nodes.map((n,i) => pos[n.id].x + halfWidths[i])) + padX;
     const y0 = Math.min(...ys) - padY;
     const y1 = Math.max(...ys) + padY;
     const contentW = x1 - x0, contentH = y1 - y0;
