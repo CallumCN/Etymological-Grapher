@@ -2982,36 +2982,43 @@ function renderGraph(focusId, subgraph) {
       return d;
     }
 
-    // Per-char text elements for hover
-    const charEls = {};
+    // Per-char text elements — built in Pass 2, used by applyFluvialAppearance
+    // outgoing is already built above
+    const charEls = {}; // not needed separately now — text has data-child/data-char attrs
 
-    // Pass 1: flow shapes
+    // Pass 1: flow shapes + rect overlay per parent
     nodes.forEach(parent => {
       const legs = outgoing[parent.id];
       const pnl = nodeLeftF(parent), pnr = pnl + wordWidthF(parent.word);
       const pnt = nodeTopF(parent),  pnb = nodeBottomF(parent);
 
-      if (!legs || !legs.length) {
-        gFluvial.append('rect')
-          .attr('x',pnl).attr('y',pnt)
-          .attr('width',pnr-pnl).attr('height',NODE_H)
-          .attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL)
-          .attr('stroke','none')
-          .attr('class',`fluvial-shape`)
-          .attr('data-id', parent.id);
-        return;
-      }
+      // Rect (always drawn, separate from flow shape)
+      gFluvial.append('rect')
+        .attr('x',pnl).attr('y',pnt)
+        .attr('width',pnr-pnl).attr('height',NODE_H)
+        .attr('fill', FILL_NORMAL)
+        .attr('stroke','none')
+        .attr('class','fluvial-rect')
+        .attr('data-id', parent.id)
+        .attr('pointer-events','none'); // hit-tested by node-grp hit rect
+
+      if (!legs || !legs.length) return;
+
       legs.sort((a,b)=>a.cx0-b.cx0);
       const pathEl = gFluvial.append('path')
         .attr('d', buildPath(pnl,pnr,pnt,pnb,legs))
-        .attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL)
+        .attr('fill', FILL_NORMAL)
         .attr('fill-rule','nonzero').attr('stroke','none')
         .attr('class','fluvial-shape')
         .attr('data-id', parent.id);
 
       const tooltipEl = document.getElementById('graph-tooltip');
+
       pathEl.on('mouseenter', function(e) {
-        d3.select(this).attr('fill', FILL_HOVER);
+        hoveredIds.add(parent.id);
+        hoveredFlowIds.add(parent.id);
+        // Also affect all selected nodes if this one is selected
+        if (selected.has(parent.id)) selected.forEach(id => { hoveredIds.add(id); hoveredFlowIds.add(id); });
         document.getElementById('tt-word').textContent  = parent.word;
         document.getElementById('tt-trans').textContent = parent.transcription||'';
         document.getElementById('tt-gloss').textContent = parent.meaning||'';
@@ -3019,10 +3026,7 @@ function renderGraph(focusId, subgraph) {
         tooltipEl.style.left = (e.clientX-svgRect.left+14)+'px';
         tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
         tooltipEl.classList.add('visible');
-        legs.forEach(leg => {
-          (charEls[leg.child.id]||[]).slice(leg.cm.start, leg.cm.end)
-            .forEach(s => d3.select(s).attr('fill', TEXT_HOVER_F));
-        });
+        applyFluvialAppearance();
       });
       pathEl.on('mousemove', function(e) {
         const svgRect = svgEl.getBoundingClientRect();
@@ -3030,32 +3034,82 @@ function renderGraph(focusId, subgraph) {
         tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
       });
       pathEl.on('mouseleave', function() {
-        d3.select(this).attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL);
+        hoveredIds.delete(parent.id);
+        hoveredFlowIds.delete(parent.id);
+        if (selected.has(parent.id)) selected.forEach(id => { hoveredIds.delete(id); hoveredFlowIds.delete(id); });
         tooltipEl.classList.remove('visible');
-        legs.forEach(leg => {
-          (charEls[leg.child.id]||[]).slice(leg.cm.start, leg.cm.end)
-            .forEach(s => d3.select(s).attr('fill', TEXT_NORMAL_F));
-        });
+        applyFluvialAppearance();
       });
     });
 
-    // Pass 2: per-character text
+    // Pass 2: per-character text (own word text + child contribution text)
     nodes.forEach(n => {
       const p = pos[n.id]; if (!p) return;
       const ci = ciCache[n.id], nl = nodeLeftF(n);
-      const spans = ci.map((info) => {
-        return gFluvial.append('text')
+      ci.forEach((info, idx) => {
+        gFluvial.append('text')
           .attr('x', nl+info.x+info.w/2).attr('y', p.y+FONT_SIZE_F*0.35)
           .attr('text-anchor','middle')
           .attr('font-family','"Cormorant Garamond",serif')
           .attr('font-size', FONT_SIZE_F)
           .attr('fill', TEXT_NORMAL_F)
           .attr('pointer-events','none')
-          .text(info.ch)
-          .node();
+          .attr('class','fluvial-text')
+          .attr('data-id', n.id)
+          .text(info.ch);
       });
-      charEls[n.id] = spans;
     });
+
+    // Mark child-contribution chars separately for per-char hover highlighting
+    // These are the same chars as fluvial-text but we also tag them as fluvial-child-text
+    // so applyFluvialAppearance can find them by parent flow
+    nodes.forEach(n => {
+      (n.ancestors||[]).forEach(ancId => {
+        if (!nodes.find(x=>x.id===ancId)) return;
+        const cm = (n.morphemes||[]).find(m=>m.ancestorId===ancId);
+        if (!cm) return;
+        const ci = ciCache[n.id], nl = nodeLeftF(n), p = pos[n.id];
+        for (let i = cm.start; i < cm.end; i++) {
+          const info = ci[i]; if (!info) continue;
+          // Find the existing fluvial-text node for this char and add child-text class
+          // Instead, create a separate invisible overlay element for child-text targeting
+          // Actually: reuse fluvial-text by adding data-child/data-char attrs
+          // We need to find the text element for node n at char i
+          // Simplest: store refs during Pass 2 — but we already appended them.
+          // Use a post-pass selector approach:
+        }
+      });
+    });
+
+    // Simpler: in Pass 2, each fluvial-text element gets both data-id (own node) AND
+    // is also tagged fluvial-child-text with data-child/data-char for all parent flows
+    // covering it. Do this by re-selecting after Pass 2.
+    gFluvial.selectAll('.fluvial-text').each(function() {
+      const id      = this.getAttribute('data-id');
+      const n       = nodes.find(x=>x.id===id); if (!n) return;
+      const ci      = ciCache[id]; if (!ci) return;
+      const x       = +this.getAttribute('x');
+      const nl      = nodeLeftF(n);
+      // Find char index by matching x position
+      let charIdx = -1;
+      ci.forEach((info,i) => {
+        if (Math.abs(nl+info.x+info.w/2 - x) < 0.5) charIdx = i;
+      });
+      if (charIdx < 0) return;
+      // Check if any parent flow covers this char
+      (n.ancestors||[]).forEach(ancId => {
+        const cm = (n.morphemes||[]).find(m=>m.ancestorId===ancId);
+        if (!cm) return;
+        if (charIdx >= cm.start && charIdx < cm.end) {
+          d3.select(this)
+            .classed('fluvial-child-text', true)
+            .attr('data-child', id)
+            .attr('data-char', charIdx);
+        }
+      });
+    });
+
+    applyFluvialAppearance();
   }
 
   redrawEdges();
@@ -3071,17 +3125,87 @@ function renderGraph(focusId, subgraph) {
     return selected.has(d.id) ? '#b87c1a' : '#1a1814';
   }
 
+  // ── Fluvial hover state ──
+  // hoveredIds: nodes currently under the cursor (rect or flow)
+  // hoveredFlowIds: nodes whose flow shape is under the cursor
+  const hoveredIds     = new Set();
+  const hoveredFlowIds = new Set();
+
+  function applyFluvialAppearance() {
+    if (graphViewMode !== 'fluvial') return;
+
+    // For each node, determine the set of "affected" nodes:
+    // hovering or selecting one selected node affects all selected nodes
+    const affectedSelected = new Set();
+    hoveredIds.forEach(id => { if (selected.has(id)) selected.forEach(s => affectedSelected.add(s)); });
+
+    gFluvial.selectAll('.fluvial-rect').each(function() {
+      const id = this.getAttribute('data-id');
+      const isSel       = selected.has(id);
+      const isHovered   = hoveredIds.has(id) || (isSel && affectedSelected.has(id));
+      d3.select(this).attr('fill',
+        isSel     ? 'rgba(184,124,26,0.45)' :
+        isHovered ? 'rgba(154,136,112,0.38)' :
+                    FILL_NORMAL);
+    });
+
+    gFluvial.selectAll('.fluvial-shape').each(function() {
+      const id = this.getAttribute('data-id');
+      const isSel        = selected.has(id);
+      const isHovFlow    = hoveredFlowIds.has(id) || (isSel && affectedSelected.has(id) && hoveredFlowIds.size > 0);
+      const isHovRect    = hoveredIds.has(id) && !hoveredFlowIds.has(id);
+      d3.select(this).attr('fill',
+        isSel && isHovFlow ? FILL_HOVER :
+        isSel              ? 'rgba(184,124,26,0.35)' :
+        isHovFlow          ? FILL_HOVER :
+                             FILL_NORMAL);
+    });
+
+    // Own text: highlight if selected, or if rect-hovered, or if flow-hovered
+    gFluvial.selectAll('.fluvial-text').each(function() {
+      const id = this.getAttribute('data-id');
+      const isSel     = selected.has(id);
+      const isHovered = hoveredIds.has(id) || (isSel && affectedSelected.has(id));
+      d3.select(this).attr('fill',
+        isSel || isHovered ? TEXT_HOVER_F : TEXT_NORMAL_F);
+    });
+
+    // Child text: highlight only when flow is hovered or when selected
+    // Build reverse map: childCharId → set of parent IDs whose flows cover it
+    gFluvial.selectAll('.fluvial-child-text').each(function() {
+      const childId = this.getAttribute('data-child');
+      const charIdx = +this.getAttribute('data-char');
+      // Find all parents whose outgoing flow covers this child char
+      let highlight = false;
+      nodes.forEach(parent => {
+        const legs = outgoing[parent.id];
+        if (!legs) return;
+        const isSel      = selected.has(parent.id);
+        const isHovFlow  = hoveredFlowIds.has(parent.id) ||
+                           (isSel && affectedSelected.has(parent.id) && hoveredFlowIds.size > 0);
+        if (!isSel && !isHovFlow) return;
+        legs.forEach(leg => {
+          if (leg.child.id === childId && charIdx >= leg.cm.start && charIdx < leg.cm.end) {
+            highlight = true;
+          }
+        });
+      });
+      d3.select(this).attr('fill', highlight ? TEXT_HOVER_F : TEXT_NORMAL_F);
+    });
+  }
+
   function updateNodeAppearance(pendingIds) {
     if (graphViewMode === 'fluvial') {
-      gFluvial.selectAll('.fluvial-shape').each(function() {
-        const id = this.getAttribute('data-id');
-        const isPending  = pendingIds && pendingIds.has(id);
-        const isSelected = selected.has(id);
-        d3.select(this).attr('fill',
-          isSelected ? 'rgba(184,124,26,0.45)' :
-          isPending  ? 'rgba(184,124,26,0.28)' :
-                       'rgba(154,136,112,0.22)');
-      });
+      // Pending: rubber-band preview — show as lightly highlighted
+      if (pendingIds) {
+        gFluvial.selectAll('.fluvial-rect,.fluvial-shape').each(function() {
+          const id = this.getAttribute('data-id');
+          if (pendingIds.has(id) && !selected.has(id)) {
+            d3.select(this).attr('fill', 'rgba(184,124,26,0.22)');
+          }
+        });
+      }
+      applyFluvialAppearance();
       return;
     }
     gNodes.selectAll('g.node-grp').each(function(d) {
@@ -3151,6 +3275,10 @@ function renderGraph(focusId, subgraph) {
         if (!e.sourceEvent.shiftKey && !selected.has(d.id)) {
           setSelected([d.id]);
         }
+        // Clear hover state so dragged nodes show selection color, not hover color
+        hoveredIds.clear();
+        hoveredFlowIds.clear();
+        if (graphViewMode === 'fluvial') applyFluvialAppearance();
         // Snapshot y of each selected node
         dragStartY = {};
         selected.forEach(id => { if (pos[id]) dragStartY[id] = pos[id].y; });
@@ -3297,6 +3425,11 @@ function renderGraph(focusId, subgraph) {
         tooltip.classList.add('visible');
         if (!ghost || !ghost.pinned) showGhost(d.id, false);
         svgEl.dataset.hoveredNode = d.id;
+        if (graphViewMode === 'fluvial') {
+          hoveredIds.add(d.id);
+          if (selected.has(d.id)) selected.forEach(id => hoveredIds.add(id));
+          applyFluvialAppearance();
+        }
       })
       .on('mousemove', e => {
         const [mx, my] = d3.pointer(e, svgEl);
@@ -3306,6 +3439,11 @@ function renderGraph(focusId, subgraph) {
         tooltip.classList.remove('visible');
         delete svgEl.dataset.hoveredNode;
         if (ghost && !ghost.pinned) clearGhost();
+        if (graphViewMode === 'fluvial') {
+          hoveredIds.delete(d.id);
+          if (selected.has(d.id)) selected.forEach(id => hoveredIds.delete(id));
+          applyFluvialAppearance();
+        }
       })
       .on('dblclick', (e, d) => {
         e.stopPropagation();
