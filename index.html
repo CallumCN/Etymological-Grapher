@@ -2490,7 +2490,6 @@ function computeFullLayout(nodes) {
 }
 
 function redrawLayout() {
-  // Determine current node set
   let nodes;
   if (activeSubgraphId) {
     const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
@@ -2501,19 +2500,18 @@ function redrawLayout() {
   if (!nodes.length) return;
 
   const newPos = computeFullLayout(nodes);
+  console.log('[redrawLayout] computed', Object.keys(newPos).length, 'positions, sample x:',
+    Object.values(newPos).slice(0,3).map(p=>Math.round(p.x)));
 
-  // Re-render with new positions by clearing saved subgraph positions
-  // and re-running renderGraph which will use the new layout
   if (activeSubgraphId) {
     const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
     if (sg) {
       sg.positions = {};
-      Object.entries(newPos).forEach(([id, p]) => { sg.positions[id] = p; });
+      Object.entries(newPos).forEach(([id, p]) => { sg.positions[id] = { x: p.x, y: p.y }; });
       renderSubgraph(sg);
-      scheduleSubgraphSave && scheduleSubgraphSave();
+      saveSubgraphToCloud(sg); // save new positions to Supabase
     }
   } else {
-    // For the full lexicon view, store positions temporarily so renderGraph uses them
     _pendingLayout = newPos;
     renderGraph(null);
     _pendingLayout = null;
