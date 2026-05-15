@@ -2900,8 +2900,9 @@ function renderGraph(focusId, subgraph) {
 
   // ── Fluvial layer redraw ──
   function redrawFluvial() {
-    gEdges.selectAll('*').remove(); // keep edges empty in fluvial mode
+    gEdges.selectAll('*').remove();
     gFluvial.selectAll('*').remove();
+    console.log('[fluvial] redrawFluvial called, nodes:', nodes.length, 'measureEl in DOM:', svgEl.contains(_measureEl));
 
     const NODE_W_PAD  = 6;
     const FONT_SIZE_F = 15;
