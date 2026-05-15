@@ -2701,6 +2701,8 @@ function renderGraph(focusId, subgraph) {
     gFluvial.selectAll('.fluvial-child-text').each(function() {
       const childId = this.getAttribute('data-child');
       const charIdx = +this.getAttribute('data-char');
+      // Keep amber if the child node itself is selected/pending
+      if (isActive(childId)) return; // already set amber by fluvial-text pass
       let highlight = false;
       nodes.forEach(parent => {
         if (!isActive(parent.id) && !hoveredFlowIds.has(parent.id)) return;
