@@ -2717,6 +2717,7 @@ function renderGraph(focusId, subgraph) {
   function redrawFluvial() {
     gEdges.selectAll('*').remove();
     gFluvial.selectAll('*').remove();
+    console.log('[fluvial] nodes:', nodes.length, 'measureEl:', !!_measureEl, 'inDOM:', svgEl.contains(_measureEl));
 
     const NODE_H    = 32;
     const NODE_W_PAD  = 6;
