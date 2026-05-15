@@ -2438,6 +2438,33 @@ function renderBraidedGraph(nodes, pos, svgEl, W, H, bTx, bTy, bScale) {
     });
 
     g.appendChild(pathEl);
+
+    // ── Side edge strokes (left and right only, no horizontal edges) ──
+    const BORDER = 'rgba(120,100,75,0.55)';
+
+    // Left edge: top-left of rect down, then each leg's left bezier
+    // Right edge: top-right of rect down, then each leg's right bezier
+    // Each leg contributes one open bezier per side.
+    // We draw one path per side, with move-to between disconnected legs.
+    let leftD  = `M ${pnl} ${pnt} L ${pnl} ${pnb}`;
+    let rightD = `M ${pnr} ${pnt} L ${pnr} ${pnb}`;
+
+    legs.forEach(leg => {
+      // Left side of this leg: from (pnl,pnb) bezier down to (leg.cx0,leg.cy)
+      leftD  += ` M ${pnl} ${pnb} C ${pnl} ${leg.my}, ${leg.cx0} ${leg.my}, ${leg.cx0} ${leg.cy}`;
+      // Right side of this leg: from (pnr,pnb) bezier down to (leg.cx1,leg.cy)
+      rightD += ` M ${pnr} ${pnb} C ${pnr} ${leg.my}, ${leg.cx1} ${leg.my}, ${leg.cx1} ${leg.cy}`;
+    });
+
+    [leftD, rightD].forEach(d => {
+      const stroke = document.createElementNS('http://www.w3.org/2000/svg','path');
+      stroke.setAttribute('d', d);
+      stroke.setAttribute('fill', 'none');
+      stroke.setAttribute('stroke', BORDER);
+      stroke.setAttribute('stroke-width', '1');
+      stroke.setAttribute('pointer-events', 'none');
+      g.appendChild(stroke);
+    });
   });
 
   // ── Pass 2: word text as per-character text elements (on top, pointer-events none) ──
