@@ -2938,13 +2938,12 @@ function renderGraph(focusId, subgraph) {
           .text(info.ch);
       });
 
-      // Word info lines to the right of the rectangle, vertically centred
+      // Word info lines to the right of the rectangle, top-aligned with node rect
       if (showWordInfo) {
         const wrappedLines = nodeInfoLinesWrapped(n);
         if (wrappedLines.length) {
           const rectRight = nl + wordWidthF(n.word);
-          const totalH    = wrappedLines.length * INFO_LINE_H;
-          const startY    = p.y - totalH / 2 + INFO_LINE_H * 0.75;
+          const startY    = nodeTopF(n) + INFO_LINE_H * 0.85; // first baseline at top of rect
           wrappedLines.forEach((line, i) => {
             gFluvial.append('text')
               .attr('x', rectRight + INFO_GAP)
@@ -3528,15 +3527,14 @@ function renderGraph(focusId, subgraph) {
     const n = DB.find(x=>x.id===id);
     _measureEl.textContent = n?.word||'';
     const rectHalfW = (_measureEl.getBBox().width + 12)/2;
-    // Include info width in right boundary when word info is shown
     let iw = 0;
     if (showWordInfo && n) {
       _infoMeasureCollide.textContent = n.transcription||'';
-      const tw = _infoMeasureCollide.getBBox().width;
+      const tw = Math.min(_infoMeasureCollide.getBBox().width, INFO_MAX_W);
       _infoMeasureCollide.textContent = n.meaning||'';
-      const mw = _infoMeasureCollide.getBBox().width;
+      const mw = Math.min(_infoMeasureCollide.getBBox().width, INFO_MAX_W);
       const maxInfoW = Math.max(tw, mw);
-      if (maxInfoW > 0) iw = 8 + maxInfoW; // INFO_GAP + text
+      if (maxInfoW > 0) iw = 8 + maxInfoW;
     }
     return (pos[id]?.x ?? 0) + rectHalfW + iw + PAD;
   }
@@ -3754,9 +3752,9 @@ function renderGraph(focusId, subgraph) {
       let iw = 0;
       if (showWordInfo) {
         _infoMeasureCollide.textContent = n.transcription||'';
-        const tw = _infoMeasureCollide.getBBox().width;
+        const tw = Math.min(_infoMeasureCollide.getBBox().width, INFO_MAX_W);
         _infoMeasureCollide.textContent = n.meaning||'';
-        const mw = _infoMeasureCollide.getBBox().width;
+        const mw = Math.min(_infoMeasureCollide.getBBox().width, INFO_MAX_W);
         if (Math.max(tw,mw) > 0) iw = 8 + Math.max(tw,mw);
       }
       return pos[n.id].x + rectHalfW + iw;
