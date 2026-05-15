@@ -2748,6 +2748,7 @@ function renderGraph(focusId, subgraph) {
   const NODE_R   = 6;
   const LABEL_DX = NODE_R + 6;
   const ROW_H    = 80;
+  const NODE_H   = 32; // height of fluvial node rectangles
 
   // Measure actual rendered text width using a hidden SVG text element.
   const _labelCache = {};
@@ -2903,7 +2904,7 @@ function renderGraph(focusId, subgraph) {
     gEdges.selectAll('*').remove();
     gFluvial.selectAll('*').remove();
 
-    const NODE_H_F    = 32;
+    const NODE_H    = 32;
     const NODE_W_PAD  = 6;
     const FONT_SIZE_F = 15;
     const FILL_NORMAL = 'rgba(154,136,112,0.22)';
@@ -2926,8 +2927,8 @@ function renderGraph(focusId, subgraph) {
       });
     }
     function nodeLeftF(n)   { return pos[n.id].x - wordWidthF(n.word) / 2; }
-    function nodeTopF(n)    { return pos[n.id].y - NODE_H_F / 2; }
-    function nodeBottomF(n) { return pos[n.id].y + NODE_H_F / 2; }
+    function nodeTopF(n)    { return pos[n.id].y - NODE_H / 2; }
+    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2; }
 
     // Measure all char infos
     const ciCache = {};
@@ -2993,7 +2994,7 @@ function renderGraph(focusId, subgraph) {
       if (!legs || !legs.length) {
         gFluvial.append('rect')
           .attr('x',pnl).attr('y',pnt)
-          .attr('width',pnr-pnl).attr('height',NODE_H_F)
+          .attr('width',pnr-pnl).attr('height',NODE_H)
           .attr('fill', selected.has(parent.id) ? 'rgba(184,124,26,0.35)' : FILL_NORMAL)
           .attr('stroke','none')
           .attr('class',`fluvial-shape`)
