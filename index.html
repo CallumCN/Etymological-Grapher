@@ -2963,6 +2963,8 @@ function renderGraph(focusId, subgraph) {
     sel.call(d3.drag()
       .on('start', (e, d) => {
         e.sourceEvent.stopPropagation();
+        tooltip.classList.remove('visible');
+        document.getElementById('graph-tooltip').classList.remove('visible');
         dragMoved   = false;
         dragTotalDy = 0;
         // If shift is held, don't replace selection — add to it
@@ -3488,6 +3490,8 @@ function renderGraph(focusId, subgraph) {
   }
 
   bgRect.on('mousedown', function(e) {
+    tooltip.classList.remove('visible');
+    document.getElementById('graph-tooltip').classList.remove('visible');
     if (e.button !== 0) return;
     const [sx, sy] = d3.pointer(e, svgEl);
     selBox = { x0: sx, y0: sy, shift: e.shiftKey, baseSelection: new Set(selected) };
