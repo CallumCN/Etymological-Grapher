@@ -2527,7 +2527,8 @@ function renderGraph(focusId, subgraph) {
   const NODE_R   = 6;
   const LABEL_DX = NODE_R + 6;
   const ROW_H    = 80;
-  const NODE_H   = 32; // height of fluvial node rectangles
+  const NODE_H   = 32;
+  const PAD      = 3; // horizontal padding for collision resolution
 
   // Fluvial visual constants (used by both redrawFluvial and applyFluvialAppearance)
   const FILL_NORMAL   = 'rgba(154,136,112,0.22)';
@@ -3517,7 +3518,6 @@ function renderGraph(focusId, subgraph) {
   // Iteratively expands contiguous overlapping groups on each row until stable.
   // Each pass: sort by midpoint, find overlapping groups, expand symmetrically.
   // Repeat until no overlaps remain (new overlaps from expansions are caught).
-  const PAD = 3;
 
   function nodeLeft(id)  {
     const n = DB.find(x=>x.id===id);
