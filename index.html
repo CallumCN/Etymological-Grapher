@@ -2320,8 +2320,7 @@ function computeFullLayout(nodes) {
     if (dfsVisited.has(id)) return;
     dfsVisited.add(id);
     dfsRank[id] = dfsCounter++;
-    // Sort children by their M value for this parent (lower M = more left = first)
-    const ch = [...children[id]];
+    const ch = [...(children[id] || [])];
     ch.sort((a,b) => mValue(a,id) - mValue(b,id));
     ch.forEach(c => dfs(c));
   }
