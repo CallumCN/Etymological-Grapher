@@ -2717,7 +2717,6 @@ function renderGraph(focusId, subgraph) {
   function redrawFluvial() {
     gEdges.selectAll('*').remove();
     gFluvial.selectAll('*').remove();
-    console.log('[fluvial] nodes:', nodes.length, 'measureEl:', !!_measureEl, 'inDOM:', svgEl.contains(_measureEl));
 
     const NODE_H    = 32;
     const NODE_W_PAD  = 6;
@@ -2762,22 +2761,6 @@ function renderGraph(focusId, subgraph) {
         outgoing[ancId].push({ child, cm, cx0, cx1, cy, my, slice });
       });
     });
-
-    // Unassigned dotted lines
-    if (showUnassigned) {
-      nodes.forEach(child => {
-        (child.ancestors||[]).filter(aid=>nodes.find(n=>n.id===aid)).forEach(ancId => {
-          if ((child.morphemes||[]).some(m=>m.ancestorId===ancId)) return;
-          const parent = nodes.find(n=>n.id===ancId);
-          if (!parent) return;
-          const line = gFluvial.append('line')
-            .attr('x1',pos[parent.id].x).attr('y1',nodeBottomF(parent))
-            .attr('x2',pos[child.id].x).attr('y2',nodeTopF(child))
-            .attr('stroke',FLOW_COLOR_F).attr('stroke-width',1)
-            .attr('stroke-dasharray','4 4').attr('opacity',0.5);
-        });
-      });
-    }
 
     // Build path for each parent — legs only, no rect body (rect drawn separately)
     function buildPath(pnl, pnr, pnt, pnb, legs) {
