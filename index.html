@@ -3587,7 +3587,11 @@ function renderGraph(focusId, subgraph) {
 
           let cursor = newLeft;
           grp.forEach(id => {
-            const newX = cursor + NODE_R + PAD;
+            const n = DB.find(x => x.id === id);
+            _measureEl.textContent = n?.word || '';
+            const rectHalfW = (_measureEl.getBBox().width + 12) / 2;
+            // Place so nodeLeft(id) = cursor: pos.x = cursor + rectHalfW + PAD
+            const newX = cursor + rectHalfW + PAD;
             pos[id].x = newX;
             gNodes.select(`g.node-grp[data-id="${id}"]`)
               .attr('transform', `translate(${newX},${pos[id].y})`);
