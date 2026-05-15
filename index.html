@@ -2968,6 +2968,7 @@ function renderGraph(focusId, subgraph) {
     sel.call(d3.drag()
       .on('start', (e, d) => {
         e.sourceEvent.stopPropagation();
+        graphDragging = true;
         tooltip.classList.remove('visible');
         document.getElementById('graph-tooltip').classList.remove('visible');
         dragMoved   = false;
@@ -3082,6 +3083,7 @@ function renderGraph(focusId, subgraph) {
         redrawEdges();
       })
       .on('end', (e, d) => {
+        graphDragging = false;
         if (!dragMoved) {
           if (e.sourceEvent.shiftKey) {
             if (selected.has(d.id)) selected.delete(d.id);
