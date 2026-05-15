@@ -2496,7 +2496,6 @@ function renderGraph(focusId, subgraph) {
   const svgEl   = document.getElementById('graph-svg');
   const tooltip = document.getElementById('graph-tooltip');
   svgEl.innerHTML = '';
-  console.log('[renderGraph] nodes:', nodes.length, 'W:', W, 'H:', H);
 
   // Suppress tooltip during any drag (node drag or rubber-band)
   let graphDragging = false;
