@@ -2480,6 +2480,11 @@ function renderGraph(focusId, subgraph) {
   const tooltip = document.getElementById('graph-tooltip');
   svgEl.innerHTML = '';
 
+  // Suppress tooltip during any drag (node drag or rubber-band)
+  let graphDragging = false;
+  svgEl.addEventListener('mousedown', () => { graphDragging = true; });
+  document.addEventListener('mouseup', () => { graphDragging = false; }, { capture: true });
+
   // Determine node set
   let nodes;
   if (subgraph) {
@@ -2819,7 +2824,7 @@ function renderGraph(focusId, subgraph) {
         const svgRect = svgEl.getBoundingClientRect();
         tooltipEl.style.left = (e.clientX-svgRect.left+14)+'px';
         tooltipEl.style.top  = (e.clientY-svgRect.top -8)+'px';
-        tooltipEl.classList.add('visible');
+        tooltipEl.classList.toggle('visible', !graphDragging);
         applyFluvialAppearance(null);
       });
       pathEl.on('mousemove', function(e) {
@@ -3118,7 +3123,7 @@ function renderGraph(focusId, subgraph) {
         document.getElementById('tt-trans').textContent = d.transcription;
         document.getElementById('tt-gloss').textContent = d.meaning;
         Object.assign(tooltip.style, { left:(mx+14)+'px', top:(my-8)+'px' });
-        tooltip.classList.add('visible');
+        tooltip.classList.toggle('visible', !graphDragging);
         if (!ghost || !ghost.pinned) showGhost(d.id, false);
         svgEl.dataset.hoveredNode = d.id;
         hoveredIds.add(d.id);
