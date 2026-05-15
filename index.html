@@ -2920,60 +2920,55 @@ function renderGraph(focusId, subgraph) {
   function applyFluvialAppearance() {
     if (graphViewMode !== 'fluvial') return;
 
-    // For each node, determine the set of "affected" nodes:
-    // hovering or selecting one selected node affects all selected nodes
+    const FILL_SEL      = 'rgba(184,124,26,0.38)'; // unified amber for both rect and flow
+    const FILL_HOV      = 'rgba(154,136,112,0.38)'; // unified grey hover for both
+
     const affectedSelected = new Set();
     hoveredIds.forEach(id => { if (selected.has(id)) selected.forEach(s => affectedSelected.add(s)); });
 
     gFluvial.selectAll('.fluvial-rect').each(function() {
       const id = this.getAttribute('data-id');
-      const isSel       = selected.has(id);
-      const isHovered   = hoveredIds.has(id) || (isSel && affectedSelected.has(id));
+      const isSel     = selected.has(id);
+      const isHovered = !isSel && (hoveredIds.has(id) || affectedSelected.has(id));
       d3.select(this).attr('fill',
-        isSel     ? 'rgba(184,124,26,0.45)' :
-        isHovered ? 'rgba(154,136,112,0.38)' :
+        isSel     ? FILL_SEL :
+        isHovered ? FILL_HOV :
                     FILL_NORMAL);
     });
 
     gFluvial.selectAll('.fluvial-shape').each(function() {
       const id = this.getAttribute('data-id');
-      const isSel        = selected.has(id);
-      const isHovFlow    = hoveredFlowIds.has(id) || (isSel && affectedSelected.has(id) && hoveredFlowIds.size > 0);
-      const isHovRect    = hoveredIds.has(id) && !hoveredFlowIds.has(id);
-      d3.select(this).attr('fill',
-        isSel && isHovFlow ? FILL_HOVER :
-        isSel              ? 'rgba(184,124,26,0.35)' :
-        isHovFlow          ? FILL_HOVER :
-                             FILL_NORMAL);
-    });
-
-    // Own text: highlight if selected, or if rect-hovered, or if flow-hovered
-    gFluvial.selectAll('.fluvial-text').each(function() {
-      const id = this.getAttribute('data-id');
       const isSel     = selected.has(id);
-      const isHovered = hoveredIds.has(id) || (isSel && affectedSelected.has(id));
+      const isHovFlow = !isSel && (hoveredFlowIds.has(id) ||
+                        (affectedSelected.has(id) && hoveredFlowIds.size > 0));
       d3.select(this).attr('fill',
-        isSel || isHovered ? TEXT_HOVER_F : TEXT_NORMAL_F);
+        isSel     ? FILL_SEL :   // selected: stays amber even on hover
+        isHovFlow ? FILL_HOV :   // unselected flow hover: grey
+                    FILL_NORMAL);
     });
 
-    // Child text: highlight only when flow is hovered or when selected
-    // Build reverse map: childCharId → set of parent IDs whose flows cover it
+    // Own text: amber only when selected
+    gFluvial.selectAll('.fluvial-text').each(function() {
+      const id    = this.getAttribute('data-id');
+      const isSel = selected.has(id);
+      d3.select(this).attr('fill', isSel ? TEXT_HOVER_F : TEXT_NORMAL_F);
+    });
+
+    // Child text: amber when parent is selected or flow-hovered
     gFluvial.selectAll('.fluvial-child-text').each(function() {
       const childId = this.getAttribute('data-child');
       const charIdx = +this.getAttribute('data-char');
-      // Find all parents whose outgoing flow covers this child char
       let highlight = false;
       nodes.forEach(parent => {
         const legs = outgoing[parent.id];
         if (!legs) return;
-        const isSel      = selected.has(parent.id);
-        const isHovFlow  = hoveredFlowIds.has(parent.id) ||
-                           (isSel && affectedSelected.has(parent.id) && hoveredFlowIds.size > 0);
+        const isSel     = selected.has(parent.id);
+        const isHovFlow = !isSel && (hoveredFlowIds.has(parent.id) ||
+                          (affectedSelected.has(parent.id) && hoveredFlowIds.size > 0));
         if (!isSel && !isHovFlow) return;
         legs.forEach(leg => {
-          if (leg.child.id === childId && charIdx >= leg.cm.start && charIdx < leg.cm.end) {
+          if (leg.child.id === childId && charIdx >= leg.cm.start && charIdx < leg.cm.end)
             highlight = true;
-          }
         });
       });
       d3.select(this).attr('fill', highlight ? TEXT_HOVER_F : TEXT_NORMAL_F);
