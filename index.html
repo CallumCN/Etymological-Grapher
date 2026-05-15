@@ -2593,6 +2593,11 @@ function renderGraph(focusId, subgraph) {
   // Set SVG dimensions early — needed for both dot-wire and fluvial
   d3.select(svgEl).attr('width', W).attr('height', H);
 
+  // Shared info-text measurer for collision resolution (uses DM Mono 10px)
+  const _infoMeasureCollide = document.createElementNS('http://www.w3.org/2000/svg','text');
+  _infoMeasureCollide.style.cssText = 'font-family:"DM Mono",monospace;font-size:10px;visibility:hidden;';
+  svgEl.appendChild(_infoMeasureCollide);
+
   // ── Selection state ──
   const selected = new Set();
 
@@ -2742,13 +2747,13 @@ function renderGraph(focusId, subgraph) {
     gEdges.selectAll('*').remove();
     gFluvial.selectAll('*').remove();
 
-    const NODE_H    = 32;
+    const NODE_H      = 32;
     const NODE_W_PAD  = 6;
-    const INFO_FONT   = 10; // px, same as tooltip
-    const INFO_PAD    = 5;  // px padding between word text baseline and info text
-    const INFO_LINE_H = 13; // px per info line
+    const INFO_GAP    = 8;   // gap between rect right edge and info text
+    const INFO_FONT   = 10;  // px
+    const INFO_LINE_H = 13;  // px per info line
 
-    // Extra height added to rect bottom when word info is shown
+    // Info lines for a node (empty when toggle is off)
     function nodeInfoLines(n) {
       if (!showWordInfo) return [];
       const lines = [];
@@ -2756,9 +2761,18 @@ function renderGraph(focusId, subgraph) {
       if (n.meaning)       lines.push({ text: n.meaning,       color: '#8a8680' });
       return lines;
     }
-    function nodeInfoHeight(n) {
+
+    // Measure info text width using the shared _infoMeasureCollide element
+    function infoWidth(n) {
+      if (!showWordInfo) return 0;
       const lines = nodeInfoLines(n);
-      return lines.length ? INFO_PAD + lines.length * INFO_LINE_H : 0;
+      if (!lines.length) return 0;
+      let maxW = 0;
+      lines.forEach(l => {
+        _infoMeasureCollide.textContent = l.text;
+        maxW = Math.max(maxW, _infoMeasureCollide.getBBox().width);
+      });
+      return INFO_GAP + maxW;
     }
 
     // Use the module-level _measureEl for text measurement
@@ -2776,8 +2790,8 @@ function renderGraph(focusId, subgraph) {
     }
     function nodeLeftF(n)   { return pos[n.id].x - wordWidthF(n.word) / 2; }
     function nodeTopF(n)    { return pos[n.id].y - NODE_H / 2; }
-    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2 + nodeInfoHeight(n); }
-    function nodeFullH(n)   { return NODE_H + nodeInfoHeight(n); }
+    function nodeBottomF(n) { return pos[n.id].y + NODE_H / 2; }
+    function nodeRightF(n)  { return nodeLeftF(n) + wordWidthF(n.word); }
 
     // Measure all char infos
     const ciCache = {};
@@ -2828,7 +2842,7 @@ function renderGraph(focusId, subgraph) {
       // Rect (always drawn, separate from flow shape)
       gFluvial.append('rect')
         .attr('x',pnl).attr('y',pnt)
-        .attr('width',pnr-pnl).attr('height',nodeFullH(parent))
+        .attr('width',pnr-pnl).attr('height',NODE_H)
         .attr('fill', FILL_NORMAL)
         .attr('stroke','none')
         .attr('class','fluvial-rect')
@@ -2893,23 +2907,27 @@ function renderGraph(focusId, subgraph) {
           .text(info.ch);
       });
 
-      // Word info lines (transcription + meaning) below word text
+      // Word info lines to the right of the rectangle, vertically centred
       if (showWordInfo) {
         const infoLines = nodeInfoLines(n);
-        const baseY = p.y + NODE_H / 2 + INFO_PAD + INFO_LINE_H * 0.85;
-        infoLines.forEach((line, i) => {
-          gFluvial.append('text')
-            .attr('x', nl + NODE_W_PAD)
-            .attr('y', baseY + i * INFO_LINE_H)
-            .attr('text-anchor', 'start')
-            .attr('font-family', '"DM Mono",monospace')
-            .attr('font-size', i === 0 ? 9.6 : 10.4)
-            .attr('fill', line.color)
-            .attr('pointer-events', 'none')
-            .attr('class', 'fluvial-info')
-            .attr('data-id', n.id)
-            .text(line.text);
-        });
+        if (infoLines.length) {
+          const rectRight = nl + wordWidthF(n.word);
+          const totalH    = infoLines.length * INFO_LINE_H;
+          const startY    = p.y - totalH / 2 + INFO_LINE_H * 0.75;
+          infoLines.forEach((line, i) => {
+            gFluvial.append('text')
+              .attr('x', rectRight + INFO_GAP)
+              .attr('y', startY + i * INFO_LINE_H)
+              .attr('text-anchor', 'start')
+              .attr('font-family', '"DM Mono",monospace')
+              .attr('font-size', INFO_FONT)
+              .attr('fill', line.color)
+              .attr('pointer-events', 'none')
+              .attr('class', 'fluvial-info')
+              .attr('data-id', n.id)
+              .text(line.text);
+          });
+        }
       }
     });
 
@@ -3469,8 +3487,27 @@ function renderGraph(focusId, subgraph) {
   // Repeat until no overlaps remain (new overlaps from expansions are caught).
   const PAD = 3;
 
-  function nodeLeft(id)  { return (pos[id]?.x ?? 0) - NODE_R - PAD; }
-  function nodeRight(id) { return (pos[id]?.x ?? 0) + NODE_R + LABEL_DX + labelPx(DB.find(n=>n.id===id)?.word||'') + PAD; }
+  function nodeLeft(id)  {
+    const n = DB.find(x=>x.id===id);
+    _measureEl.textContent = n?.word||'';
+    return (pos[id]?.x ?? 0) - (_measureEl.getBBox().width + 12)/2 - PAD;
+  }
+  function nodeRight(id) {
+    const n = DB.find(x=>x.id===id);
+    _measureEl.textContent = n?.word||'';
+    const rectHalfW = (_measureEl.getBBox().width + 12)/2;
+    // Include info width in right boundary when word info is shown
+    let iw = 0;
+    if (showWordInfo && n) {
+      _infoMeasureCollide.textContent = n.transcription||'';
+      const tw = _infoMeasureCollide.getBBox().width;
+      _infoMeasureCollide.textContent = n.meaning||'';
+      const mw = _infoMeasureCollide.getBBox().width;
+      const maxInfoW = Math.max(tw, mw);
+      if (maxInfoW > 0) iw = 8 + maxInfoW; // INFO_GAP + text
+    }
+    return (pos[id]?.x ?? 0) + rectHalfW + iw + PAD;
+  }
   function nodeMid(id)   { return (nodeLeft(id) + nodeRight(id)) / 2; }
   function nodeWidth(id) { return nodeRight(id) - nodeLeft(id); }
 
@@ -3670,11 +3707,24 @@ function renderGraph(focusId, subgraph) {
 
   // ── Auto-fit ──
   function fitToView() {
-    const xs = nodes.map(n => pos[n.id].x);
     const ys = nodes.map(n => pos[n.id].y);
-    const halfWidths = nodes.map(n => { _measureEl.textContent = n.word; return _measureEl.getBBox().width/2 + 6; });
-    const x0 = Math.min(...nodes.map((n,i) => pos[n.id].x - halfWidths[i])) - padX;
-    const x1 = Math.max(...nodes.map((n,i) => pos[n.id].x + halfWidths[i])) + padX;
+    const x0 = Math.min(...nodes.map(n => {
+      _measureEl.textContent = n.word;
+      return pos[n.id].x - (_measureEl.getBBox().width + 12)/2;
+    })) - padX;
+    const x1 = Math.max(...nodes.map(n => {
+      _measureEl.textContent = n.word;
+      const rectHalfW = (_measureEl.getBBox().width + 12)/2;
+      let iw = 0;
+      if (showWordInfo) {
+        _infoMeasureCollide.textContent = n.transcription||'';
+        const tw = _infoMeasureCollide.getBBox().width;
+        _infoMeasureCollide.textContent = n.meaning||'';
+        const mw = _infoMeasureCollide.getBBox().width;
+        if (Math.max(tw,mw) > 0) iw = 8 + Math.max(tw,mw);
+      }
+      return pos[n.id].x + rectHalfW + iw;
+    })) + padX;
     const y0 = Math.min(...ys) - padY;
     const y1 = Math.max(...ys) + padY;
     const contentW = x1 - x0, contentH = y1 - y0;
