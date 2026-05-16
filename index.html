@@ -2360,7 +2360,38 @@ function computeFullLayout(nodes) {
     }
   }
 
-  // Upward from anchor: child-group M-value formula
+  // Edge-anchoring ideal x for a parent over its children:
+  // x(P) = leftEdge(leftmost_child) + M_avg × (rightEdge(rightmost_child) − leftEdge(leftmost_child))
+  // where M_avg = average M value of P across all its placed children
+  function parentIdealX(id) {
+    const placed = children[id].filter(c => pos[c]);
+    if (!placed.length) return null;
+    let mSum = 0;
+    placed.forEach(c => { mSum += mValue(c, id); });
+    const mAvg = mSum / placed.length;
+    const leftEdges  = placed.map(c => pos[c].x - nw(c));
+    const rightEdges = placed.map(c => pos[c].x + nw(c));
+    const spanL = Math.min(...leftEdges);
+    const spanR = Math.max(...rightEdges);
+    return spanL + mAvg * (spanR - spanL);
+  }
+
+  // Edge-anchoring ideal x for a child relative to its parents:
+  // child sits at the point on the union parent span corresponding to its M values
+  function childIdealX(id) {
+    const ps = parents[id].filter(p => pos[p]);
+    if (!ps.length) return null;
+    let pulls = 0, pullSum = 0;
+    ps.forEach(pid => {
+      const m = mValue(id, pid);
+      // Parent contributes: its left edge + m × parent_width
+      pullSum += (pos[pid].x - nw(pid)) + m * 2 * nw(pid);
+      pulls++;
+    });
+    return pullSum / pulls;
+  }
+
+  // Upward from anchor: edge-anchoring formula
   for (let d = anchorDepth-1; d >= 0; d--) {
     const ids = layers[d]||[];
     ids.forEach(id => {
@@ -2368,40 +2399,20 @@ function computeFullLayout(nodes) {
         pos[id] = { x: padX + dfsRank[id]*20, y: padY + d*ROW_H };
         return;
       }
-      // Group children by M value
-      const placed = children[id].filter(c => pos[c]);
-      const mGroups = {};
-      placed.forEach(c => {
-        const m = mValue(c, id);
-        (mGroups[m] = mGroups[m]||[]).push(c);
-      });
-      let totalWeight = 0, weightedX = 0;
-      Object.entries(mGroups).forEach(([m, group]) => {
-        const xs = group.map(c => pos[c].x);
-        const mn = Math.min(...xs), mx = Math.max(...xs);
-        const gx = mn + Number(m) * (mx - mn);
-        weightedX += gx * group.length;
-        totalWeight += group.length;
-      });
-      pos[id] = { x: weightedX / totalWeight, y: padY + d*ROW_H };
+      const ix = parentIdealX(id);
+      pos[id] = { x: ix ?? (padX + dfsRank[id]*20), y: padY + d*ROW_H };
     });
     resolveLayer(ids.filter(id => pos[id]));
   }
 
-  // Downward from anchor: parent-pull formula
+  // Downward from anchor: edge-anchoring child pull
   for (let d = anchorDepth+1; d <= maxDepth; d++) {
     const ids = layers[d]||[];
     ids.forEach(id => {
       const ps = parents[id].filter(p => pos[p]);
       if (!ps.length) { pos[id] = { x: padX + dfsRank[id]*20, y: padY + d*ROW_H }; return; }
-      // Pull from parents using M value: parent.x + (m-0.5)*spread
-      let pulls = 0, pullSum = 0;
-      ps.forEach(pid => {
-        const m = mValue(id, pid);
-        pullSum += pos[pid].x + (m - 0.5) * 40;
-        pulls++;
-      });
-      pos[id] = { x: pullSum / pulls, y: padY + d*ROW_H };
+      const ix = childIdealX(id);
+      pos[id] = { x: ix ?? (padX + dfsRank[id]*20), y: padY + d*ROW_H };
     });
     resolveLayer(ids.filter(id => pos[id]));
   }
@@ -2411,55 +2422,17 @@ function computeFullLayout(nodes) {
     if (!pos[n.id]) pos[n.id] = { x: padX + dfsRank[n.id]*20, y: padY + depth[n.id]*ROW_H };
   });
 
-  // ── Phase 3: iterative relaxation ──
+  // ── Phase 3: iterative relaxation using edge-anchoring ──
   for (let iter = 0; iter < 8; iter++) {
     let maxDelta = 0;
 
-    // Top-down: pull each node toward weighted average of parents
+    // Top-down: pull each child toward its edge-anchored ideal from parents
     for (let d = 1; d <= maxDepth; d++) {
       const ids = layers[d]||[];
       const ideal = {};
       ids.forEach(id => {
-        const ps = parents[id].filter(p => pos[p]);
-        if (!ps.length) return;
-        let wx = 0, w = 0;
-        ps.forEach(pid => {
-          const m = mValue(id, pid);
-          wx += (pos[pid].x + (m-0.5)*40) * 1;
-          w++;
-        });
-        ideal[id] = wx / w;
-      });
-      ids.forEach(id => {
-        if (ideal[id] === undefined) return;
-        const prev = pos[id].x;
-        pos[id].x = pos[id].x * 0.5 + ideal[id] * 0.5; // blend toward ideal
-        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
-      });
-      resolveLayer(ids);
-    }
-
-    // Bottom-up: pull each node toward child-group centroid
-    for (let d = maxDepth-1; d >= 0; d--) {
-      const ids = layers[d]||[];
-      const ideal = {};
-      ids.forEach(id => {
-        const placed = children[id].filter(c => pos[c]);
-        if (!placed.length) return;
-        const mGroups = {};
-        placed.forEach(c => {
-          const m = mValue(c, id);
-          (mGroups[m] = mGroups[m]||[]).push(c);
-        });
-        let totalWeight = 0, weightedX = 0;
-        Object.entries(mGroups).forEach(([m, group]) => {
-          const xs = group.map(c => pos[c].x);
-          const mn = Math.min(...xs), mx = Math.max(...xs);
-          const gx = mn + Number(m) * (mx - mn);
-          weightedX += gx * group.length;
-          totalWeight += group.length;
-        });
-        ideal[id] = weightedX / totalWeight;
+        const ix = childIdealX(id);
+        if (ix !== null) ideal[id] = ix;
       });
       ids.forEach(id => {
         if (ideal[id] === undefined) return;
@@ -2470,7 +2443,24 @@ function computeFullLayout(nodes) {
       resolveLayer(ids);
     }
 
-    if (maxDelta < 0.5) break; // converged
+    // Bottom-up: pull each parent toward its edge-anchored ideal from children
+    for (let d = maxDepth-1; d >= 0; d--) {
+      const ids = layers[d]||[];
+      const ideal = {};
+      ids.forEach(id => {
+        const ix = parentIdealX(id);
+        if (ix !== null) ideal[id] = ix;
+      });
+      ids.forEach(id => {
+        if (ideal[id] === undefined) return;
+        const prev = pos[id].x;
+        pos[id].x = pos[id].x * 0.5 + ideal[id] * 0.5;
+        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
+      });
+      resolveLayer(ids);
+    }
+
+    if (maxDelta < 0.5) break;
   }
 
   // ── Phase 4: aspect ratio correction ──
@@ -2568,6 +2558,31 @@ function redistributeLayout() {
     }
   }
 
+  // Edge-anchoring helpers (mirror of computeFullLayout)
+  const halfW = id => { const n = byId[id]; if (!n) return 10; const w = n.word||''; return (w.length*7.5+12)/2; };
+
+  function parentIdealXR(id) {
+    const placed = children[id].filter(c => pos[c]);
+    if (!placed.length) return null;
+    let mSum = 0;
+    placed.forEach(c => { mSum += mValue(c, id); });
+    const mAvg = mSum / placed.length;
+    const spanL = Math.min(...placed.map(c => pos[c].x - halfW(c)));
+    const spanR = Math.max(...placed.map(c => pos[c].x + halfW(c)));
+    return spanL + mAvg * (spanR - spanL);
+  }
+
+  function childIdealXR(id) {
+    const ps = parents[id].filter(p => pos[p]);
+    if (!ps.length) return null;
+    let pullSum = 0;
+    ps.forEach(pid => {
+      const m = mValue(id, pid);
+      pullSum += (pos[pid].x - halfW(pid)) + m * 2 * halfW(pid);
+    });
+    return pullSum / ps.length;
+  }
+
   // Iterative relaxation: respect locked y-levels and horizontal order
   for (let iter = 0; iter < 10; iter++) {
     let maxDelta = 0;
@@ -2578,15 +2593,8 @@ function redistributeLayout() {
       const ids = byY[y];
       const ideal = {};
       ids.forEach(id => {
-        const ps = parents[id].filter(p => pos[p]);
-        if (!ps.length) return;
-        let wx = 0, w = 0;
-        ps.forEach(pid => {
-          const m = mValue(id, pid);
-          wx += pos[pid].x + (m - 0.5) * 40;
-          w++;
-        });
-        ideal[id] = wx / w;
+        const ix = childIdealXR(id);
+        if (ix !== null) ideal[id] = ix;
       });
       ids.forEach(id => {
         if (ideal[id] === undefined) return;
@@ -2603,22 +2611,8 @@ function redistributeLayout() {
       const ids = byY[y];
       const ideal = {};
       ids.forEach(id => {
-        const placed = children[id].filter(c => pos[c]);
-        if (!placed.length) return;
-        const mGroups = {};
-        placed.forEach(c => {
-          const m = mValue(c, id);
-          (mGroups[m] = mGroups[m]||[]).push(c);
-        });
-        let totalWeight = 0, weightedX = 0;
-        Object.entries(mGroups).forEach(([m, group]) => {
-          const xs = group.map(c => pos[c].x);
-          const mn = Math.min(...xs), mx = Math.max(...xs);
-          const gx = mn + Number(m) * (mx - mn);
-          weightedX += gx * group.length;
-          totalWeight += group.length;
-        });
-        ideal[id] = weightedX / totalWeight;
+        const ix = parentIdealXR(id);
+        if (ix !== null) ideal[id] = ix;
       });
       ids.forEach(id => {
         if (ideal[id] === undefined) return;
