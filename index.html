@@ -2528,8 +2528,28 @@ function redistributeLayout() {
   });
   const sortedYs = Object.keys(byY).map(Number).sort((a,b)=>a-b);
 
-  // Lock horizontal order within each level (sort by current x)
-  sortedYs.forEach(y => { byY[y].sort((a,b) => (currentPos[a]?.x??0) - (currentPos[b]?.x??0)); });
+  // Lock horizontal order within each level (sort by current x, then freeze)
+  const lockedOrder = {};
+  sortedYs.forEach(y => {
+    byY[y].sort((a,b) => (currentPos[a]?.x??0) - (currentPos[b]?.x??0));
+    lockedOrder[y] = [...byY[y]]; // frozen order
+  });
+
+  const PAD_R = 3;
+  function resolveLayer(ids) {
+    // Use locked order, not current-x order, to prevent swaps
+    const y = Math.round(pos[ids[0]]?.y ?? 0);
+    const ordered = lockedOrder[y] ? lockedOrder[y].filter(id => ids.includes(id)) : [...ids];
+    const halfW = id => { const n = byId[id]; if (!n) return 10; return (n.word||'').length*7.5/2+6; };
+    for (let i = 1; i < ordered.length; i++) {
+      const minX = pos[ordered[i-1]].x + halfW(ordered[i-1]) + PAD_R + halfW(ordered[i]);
+      if (pos[ordered[i]].x < minX) pos[ordered[i]].x = minX;
+    }
+    for (let i = ordered.length-2; i >= 0; i--) {
+      const maxX = pos[ordered[i+1]].x - halfW(ordered[i+1]) - PAD_R - halfW(ordered[i]);
+      if (pos[ordered[i]].x > maxX) pos[ordered[i]].x = maxX;
+    }
+  }
 
   // M value helper
   function mValue(childId, parentId) {
@@ -2542,21 +2562,6 @@ function redistributeLayout() {
   // Copy current positions as mutable working set
   const pos = {};
   nodes.forEach(n => { pos[n.id] = { x: currentPos[n.id]?.x ?? 0, y: currentPos[n.id]?.y ?? 0 }; });
-
-  // Overlap resolver (preserves order)
-  const PAD_R = 3;
-  function resolveLayer(ids) {
-    const sorted = [...ids].sort((a,b) => pos[a].x - pos[b].x);
-    const halfW = id => { const n = byId[id]; if (!n) return 10; const w = n.word||''; return (w.length*7.5+12)/2; };
-    for (let i = 1; i < sorted.length; i++) {
-      const minX = pos[sorted[i-1]].x + halfW(sorted[i-1]) + PAD_R + halfW(sorted[i]);
-      if (pos[sorted[i]].x < minX) pos[sorted[i]].x = minX;
-    }
-    for (let i = sorted.length-2; i >= 0; i--) {
-      const maxX = pos[sorted[i+1]].x - halfW(sorted[i+1]) - PAD_R - halfW(sorted[i]);
-      if (pos[sorted[i]].x > maxX) pos[sorted[i]].x = maxX;
-    }
-  }
 
   // Edge-anchoring helpers (mirror of computeFullLayout)
   const halfW = id => { const n = byId[id]; if (!n) return 10; const w = n.word||''; return (w.length*7.5+12)/2; };
