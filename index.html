@@ -1073,7 +1073,8 @@ nav {
       </div>
       <button class="graph-btn-sm graph-overlay-recenter" onclick="reCenterGraph()">Re-center</button>
       <button class="graph-btn-sm" id="btn-wordinfo" onclick="toggleWordInfo()" style="position:absolute;top:0.75rem;right:6.5rem;z-index:10;">Word info</button>
-      <button class="graph-btn-sm" onclick="redrawLayout()" style="position:absolute;top:0.75rem;right:13rem;z-index:10;">Redraw</button>
+      <button class="graph-btn-sm" onclick="redrawLayout()" style="position:absolute;top:0.75rem;right:13rem;z-index:10;">Rearrange</button>
+      <button class="graph-btn-sm" onclick="redistributeLayout()" style="position:absolute;top:0.75rem;right:19.5rem;z-index:10;">Redistribute</button>
       <div class="graph-view-mode-btns">
 </div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
@@ -2501,6 +2502,154 @@ function redrawLayout() {
   }
 }
 
+function redistributeLayout() {
+  // Get current nodes and positions from graphState
+  if (!graphState) return;
+
+  let nodes;
+  if (activeSubgraphId) {
+    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+    nodes = DB.filter(n => sg?.nodeIds.includes(n.id));
+  } else {
+    nodes = [...DB];
+  }
+  if (!nodes.length) return;
+
+  const byId = {};
+  nodes.forEach(n => { byId[n.id] = n; });
+
+  // Read current positions from the live pos map via graphState
+  const currentPos = graphState.getPos ? graphState.getPos() : null;
+  if (!currentPos) { redrawLayout(); return; }
+
+  // Build parent/child maps
+  const parents = {}, children = {};
+  nodes.forEach(n => {
+    parents[n.id] = (n.ancestors||[]).filter(a => byId[a]);
+    children[n.id] = [];
+  });
+  nodes.forEach(n => parents[n.id].forEach(pid => children[pid].push(n.id)));
+
+  // Group nodes by their current y-level (locked)
+  const byY = {};
+  nodes.forEach(n => {
+    const row = Math.round(currentPos[n.id]?.y ?? 0);
+    (byY[row] = byY[row]||[]).push(n.id);
+  });
+  const sortedYs = Object.keys(byY).map(Number).sort((a,b)=>a-b);
+
+  // Lock horizontal order within each level (sort by current x)
+  sortedYs.forEach(y => { byY[y].sort((a,b) => (currentPos[a]?.x??0) - (currentPos[b]?.x??0)); });
+
+  // M value helper
+  function mValue(childId, parentId) {
+    const ps = parents[childId];
+    if (ps.length <= 1) return 0.5;
+    const idx = ps.indexOf(parentId);
+    return idx < 0 ? 0.5 : idx / (ps.length - 1);
+  }
+
+  // Copy current positions as mutable working set
+  const pos = {};
+  nodes.forEach(n => { pos[n.id] = { x: currentPos[n.id]?.x ?? 0, y: currentPos[n.id]?.y ?? 0 }; });
+
+  // Overlap resolver (preserves order)
+  const PAD_R = 3;
+  function resolveLayer(ids) {
+    const sorted = [...ids].sort((a,b) => pos[a].x - pos[b].x);
+    const halfW = id => { const n = byId[id]; if (!n) return 10; const w = n.word||''; return (w.length*7.5+12)/2; };
+    for (let i = 1; i < sorted.length; i++) {
+      const minX = pos[sorted[i-1]].x + halfW(sorted[i-1]) + PAD_R + halfW(sorted[i]);
+      if (pos[sorted[i]].x < minX) pos[sorted[i]].x = minX;
+    }
+    for (let i = sorted.length-2; i >= 0; i--) {
+      const maxX = pos[sorted[i+1]].x - halfW(sorted[i+1]) - PAD_R - halfW(sorted[i]);
+      if (pos[sorted[i]].x > maxX) pos[sorted[i]].x = maxX;
+    }
+  }
+
+  // Iterative relaxation: respect locked y-levels and horizontal order
+  for (let iter = 0; iter < 10; iter++) {
+    let maxDelta = 0;
+
+    // Top-down pass
+    sortedYs.forEach((y, di) => {
+      if (di === 0) return;
+      const ids = byY[y];
+      const ideal = {};
+      ids.forEach(id => {
+        const ps = parents[id].filter(p => pos[p]);
+        if (!ps.length) return;
+        let wx = 0, w = 0;
+        ps.forEach(pid => {
+          const m = mValue(id, pid);
+          wx += pos[pid].x + (m - 0.5) * 40;
+          w++;
+        });
+        ideal[id] = wx / w;
+      });
+      ids.forEach(id => {
+        if (ideal[id] === undefined) return;
+        const prev = pos[id].x;
+        pos[id].x = pos[id].x * 0.4 + ideal[id] * 0.6;
+        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
+      });
+      resolveLayer(ids);
+    });
+
+    // Bottom-up pass
+    for (let di = sortedYs.length - 2; di >= 0; di--) {
+      const y = sortedYs[di];
+      const ids = byY[y];
+      const ideal = {};
+      ids.forEach(id => {
+        const placed = children[id].filter(c => pos[c]);
+        if (!placed.length) return;
+        const mGroups = {};
+        placed.forEach(c => {
+          const m = mValue(c, id);
+          (mGroups[m] = mGroups[m]||[]).push(c);
+        });
+        let totalWeight = 0, weightedX = 0;
+        Object.entries(mGroups).forEach(([m, group]) => {
+          const xs = group.map(c => pos[c].x);
+          const mn = Math.min(...xs), mx = Math.max(...xs);
+          const gx = mn + Number(m) * (mx - mn);
+          weightedX += gx * group.length;
+          totalWeight += group.length;
+        });
+        ideal[id] = weightedX / totalWeight;
+      });
+      ids.forEach(id => {
+        if (ideal[id] === undefined) return;
+        const prev = pos[id].x;
+        pos[id].x = pos[id].x * 0.4 + ideal[id] * 0.6;
+        maxDelta = Math.max(maxDelta, Math.abs(pos[id].x - prev));
+      });
+      resolveLayer(ids);
+    }
+
+    if (maxDelta < 0.5) break;
+  }
+
+  // Apply new positions
+  if (activeSubgraphId) {
+    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+    if (sg) {
+      nodes.forEach(n => { sg.positions[n.id] = { x: pos[n.id].x, y: pos[n.id].y }; });
+      renderSubgraph(sg);
+      saveSubgraphToCloud(sg);
+    }
+  } else {
+    // Pass new positions through a fresh render
+    _redistributePos = pos;
+    renderGraph(null);
+    _redistributePos = null;
+  }
+}
+
+let _redistributePos = null;
+
 // ─── GRAPH ────────────────────────────────
 let focusedVisible = null;
 
@@ -2733,10 +2882,12 @@ function renderGraph(focusId, subgraph) {
 
   const pos = {};  // mutable; updated by drag
   nodes.forEach(n => {
-    const saved   = subgraph?.positions?.[n.id];
-    const def     = defaultLayout[n.id];
-  pos[n.id] = saved   ? { x: saved.x,   y: saved.y   }
-              : def     ? { x: def.x,     y: def.y     }
+    const redist = _redistributePos?.[n.id];
+    const saved  = subgraph?.positions?.[n.id];
+    const def    = defaultLayout[n.id];
+    pos[n.id] = redist ? { x: redist.x, y: redist.y }
+              : saved  ? { x: saved.x,  y: saved.y  }
+              : def    ? { x: def.x,    y: def.y    }
               : { x: padX, y: padY + ROW_H };
   });
 
@@ -3929,6 +4080,7 @@ function renderGraph(focusId, subgraph) {
     keyHandler,
     wheelCleanup: () => svgEl.removeEventListener('wheel', onWheel),
     fitToView,
+    getPos: () => pos,
     panToNode(id) {
       if (!pos[id]) return;
       const W2 = svgEl.clientWidth  || 800;
