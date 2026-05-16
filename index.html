@@ -2234,6 +2234,7 @@ const graphViewMode = 'fluvial';
 let showWordInfo = false;
 
 function toggleWordInfo() {
+  pushUndo();
   showWordInfo = !showWordInfo;
   document.getElementById('btn-wordinfo').classList.toggle('active', showWordInfo);
   if (currentView === 'lexicon' || currentView === 'graph') {
