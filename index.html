@@ -1075,6 +1075,7 @@ nav {
       <button class="graph-btn-sm" id="btn-wordinfo" onclick="toggleWordInfo()" style="position:absolute;top:0.75rem;right:6.5rem;z-index:10;">Word info</button>
       <button class="graph-btn-sm" onclick="redrawLayout()" style="position:absolute;top:0.75rem;right:13rem;z-index:10;">Rearrange</button>
       <button class="graph-btn-sm" onclick="redistributeLayout()" style="position:absolute;top:0.75rem;right:19.5rem;z-index:10;">Redistribute</button>
+      <button class="graph-btn-sm" id="btn-undo" onclick="undoLayout()" style="position:absolute;top:0.75rem;right:26rem;z-index:10;opacity:0.4;pointer-events:none;">Undo</button>
       <div class="graph-view-mode-btns">
 </div>
       <svg id="graph-svg" ondragover="event.preventDefault()" ondrop="handleGraphDrop(event)"></svg>
@@ -1374,6 +1375,8 @@ function deleteWord(id) {
 
 // ─── VIEWS ────────────────────────────────
 function showView(v, subgraphId) {
+  undoStack.length = 0;
+  updateUndoBtn();
   activeSubgraphId = subgraphId || null;
   currentView = v;
   saveViewState();
@@ -2243,6 +2246,54 @@ function toggleWordInfo() {
   }
 }
 
+// ─── UNDO ─────────────────────────────────
+const undoStack = []; // [{subgraphId, positions}]
+const UNDO_LIMIT = 30;
+
+function pushUndo() {
+  let snapshot;
+  if (activeSubgraphId) {
+    const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
+    if (!sg) return;
+    snapshot = { subgraphId: activeSubgraphId, positions: JSON.parse(JSON.stringify(sg.positions||{})) };
+  } else {
+    // Lexicon: snapshot from live pos map
+    const pos = graphState?.getPos?.();
+    if (!pos) return;
+    const posSnap = {};
+    Object.entries(pos).forEach(([id, p]) => { posSnap[id] = { x: p.x, y: p.y }; });
+    snapshot = { subgraphId: null, positions: posSnap };
+  }
+  undoStack.push(snapshot);
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+  updateUndoBtn();
+}
+
+function updateUndoBtn() {
+  const btn = document.getElementById('btn-undo');
+  if (!btn) return;
+  const hasUndo = undoStack.length > 0;
+  btn.style.opacity = hasUndo ? '1' : '0.4';
+  btn.style.pointerEvents = hasUndo ? '' : 'none';
+}
+
+function undoLayout() {
+  if (!undoStack.length) return;
+  const snapshot = undoStack.pop();
+  updateUndoBtn();
+  if (snapshot.subgraphId) {
+    const sg = openSubgraphs.find(s => s.id === snapshot.subgraphId);
+    if (!sg) return;
+    sg.positions = snapshot.positions;
+    renderSubgraph(sg);
+    saveSubgraphToCloud(sg);
+  } else {
+    _redistributePos = snapshot.positions;
+    renderGraph(null);
+    _redistributePos = null;
+  }
+}
+
 // ─── FULL LAYOUT ALGORITHM ────────────────────────────────────────────────
 // Phase 1: Longest-path level assignment (maximal vertical compaction)
 // Phase 2: DFS-based initial horizontal ordering
@@ -2372,6 +2423,7 @@ function computeFullLayout(nodes) {
 }
 
 function redrawLayout() {
+  pushUndo();
   if (activeSubgraphId) {
     const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
     if (sg) {
@@ -2386,6 +2438,7 @@ function redrawLayout() {
 
 function redistributeLayout() {
   if (!graphState) return;
+  pushUndo();
 
   let nodes;
   if (activeSubgraphId) {
@@ -2563,6 +2616,7 @@ function handleGraphDrop(event) {
     if (!sg.nodeIds.includes(wordId)) {
       sg.nodeIds.push(wordId);
     }
+    pushUndo();
     // Convert drop coords to SVG space
     const svgEl = document.getElementById('graph-svg');
     const rect = svgEl.getBoundingClientRect();
@@ -3223,6 +3277,7 @@ function renderGraph(focusId, subgraph) {
         graphDragging = true;
         tooltip.classList.remove('visible');
         document.getElementById('graph-tooltip').classList.remove('visible');
+        pushUndo();
         dragMoved   = false;
         dragTotalDy = 0;
         // If shift is held, don't replace selection — add to it
@@ -3514,6 +3569,7 @@ function renderGraph(focusId, subgraph) {
             subgraph.nodeIds.push(gid);
           }
           // Adopt the ghost's position into the live pos map
+          pushUndo();
           pos[gid] = { ...ghostPos[gid] };
           // Add to nodes array
           nodes.push(gNode);
