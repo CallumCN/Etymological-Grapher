@@ -2256,14 +2256,13 @@ function pushUndo() {
   if (activeSubgraphId) {
     const sg = openSubgraphs.find(s => s.id === activeSubgraphId);
     if (!sg) return;
-    snapshot = { subgraphId: activeSubgraphId, positions: JSON.parse(JSON.stringify(sg.positions||{})) };
+    snapshot = { subgraphId: activeSubgraphId, positions: JSON.parse(JSON.stringify(sg.positions||{})), showWordInfo };
   } else {
-    // Lexicon: snapshot from live pos map
     const pos = graphState?.getPos?.();
     if (!pos) return;
     const posSnap = {};
     Object.entries(pos).forEach(([id, p]) => { posSnap[id] = { x: p.x, y: p.y }; });
-    snapshot = { subgraphId: null, positions: posSnap };
+    snapshot = { subgraphId: null, positions: posSnap, showWordInfo };
   }
   undoStack.push(snapshot);
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
@@ -2282,6 +2281,12 @@ function undoLayout() {
   if (!undoStack.length) return;
   const snapshot = undoStack.pop();
   updateUndoBtn();
+  // Restore word info toggle state
+  if (snapshot.showWordInfo !== undefined && snapshot.showWordInfo !== showWordInfo) {
+    showWordInfo = snapshot.showWordInfo;
+    const btn = document.getElementById('btn-wordinfo');
+    if (btn) btn.classList.toggle('active', showWordInfo);
+  }
   if (snapshot.subgraphId) {
     const sg = openSubgraphs.find(s => s.id === snapshot.subgraphId);
     if (!sg) return;
